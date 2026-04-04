@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 
-    name: "Art and Crafts",
+const prisma = new PrismaClient();
 
 function slugify(value) {
   return value
@@ -40,7 +40,7 @@ const categorySeed = [
     ]
   },
   {
-    name: "Art Supplies",
+    name: "Art and Crafts",
     slug: "art-supplies",
     items: [
       { title: "Sketch Pencil Starter Set", description: "Graphite sketch pencils with blending tools for beginners.", priceInr: 299, compareAtPriceInr: 349, stockOnHand: 55 },
