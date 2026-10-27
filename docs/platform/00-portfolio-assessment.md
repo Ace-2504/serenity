@@ -76,6 +76,6 @@ npx prisma migrate deploy (Postgres 16) → 1 migration applied
 
 ## 6. Information I could not obtain from the repositories
 
-* Whether the Vercel deployment of Serenity has real customers or orders. I have assumed it does not. If it does, migrations must be backwards-compatible and run against a copy first.
+* ~~Whether the Vercel deployment has real customers or orders.~~ **Confirmed by owner (2026-10-27): no customers; the product is in development.** Migrations stay additive anyway, and nothing merges to `main` until the first vertical slice works.
 * Access to a TallyPrime or BUSY installation. Without one, adapters are built against documented formats and synthetic fixtures, and labelled **unverified against a live instance** until tested on a real install (see `07-integration-research.md`).
 * Target hardware of real SME users for the local LLM. The design assumes a typical office PC (8–16 GB RAM, no discrete GPU) and treats larger models as optional.
