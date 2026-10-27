@@ -28,7 +28,10 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set<Prisma.ModelName>([
   "AuditLog",
   "ImportFile",
   "BillAllocation",
-  "ChannelCharge"
+  "ChannelCharge",
+  "Finding",
+  "FindingOutcome",
+  "Job"
 ]);
 
 export class TenantScopeError extends Error {}

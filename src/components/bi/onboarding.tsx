@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { postAndWait } from "@/components/bi/jobs";
 
 export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean; stacked?: boolean }) {
   const router = useRouter();
@@ -12,14 +13,9 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
   async function call(key: string, url: string, body: unknown, pending: string) {
     setBusy(key);
     setMessage(pending);
-    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const result = await response.json().catch(() => ({}));
+    const error = await postAndWait(url, body, setMessage);
     setBusy(null);
-    if (!response.ok) {
-      setMessage(result.message ?? "Something went wrong.");
-      return;
-    }
-    setMessage(null);
+    setMessage(error);
     router.refresh();
   }
 
@@ -39,7 +35,7 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() => call("quick", "/api/bi/demo", { size: "quick" }, "Generating and importing six months of demo data…")}
+            onClick={() => call("quick", "/api/bi/demo", { size: "quick" }, "Generating six months of demo data…")}
             className="rounded-full border border-ink bg-ink px-4 py-2 text-sm font-semibold text-canvas hover:bg-forest disabled:opacity-60"
           >
             {busy === "quick" ? "Loading…" : "Quick demo (6 months)"}
@@ -47,7 +43,7 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() => call("full", "/api/bi/demo", { size: "full" }, "Generating and importing two years of demo data — about two minutes…")}
+            onClick={() => call("full", "/api/bi/demo", { size: "full" }, "Generating two years of demo data — about two minutes, it runs in the background…")}
             className="rounded-full border border-ink px-4 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-60"
           >
             {busy === "full" ? "Loading…" : "Full demo (2 years)"}

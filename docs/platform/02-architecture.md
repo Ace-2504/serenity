@@ -72,17 +72,52 @@ Source ─▶ Adapter.extract() ─▶ RawRecord[] ─▶ Adapter.map() ─▶ C
 * Every public metric is registered in `metricRegistry` with `{ id, formula, unit, periodSemantics, requiredCapabilities, sourceFields }`. That entry is the single source for the KPI dictionary page, the API, the LLM tool descriptions and the tests.
 * Each metric returns `{ value | null, status: 'ok' | 'partial' | 'unavailable', reasons[], inputs }`. It never returns a bare number.
 
-### 2.3 Findings engine (`src/server/findings/`)
+### 2.3 Findings engine (`src/server/findings/`) — built in M7
 
-Deterministic rules run after each import. Each produces a `Finding` with evidence (query + rows), ₹ impact (with formula), assumptions, suggested action and a measurement plan (metric, baseline, check date). Initial rules:
+Deterministic rules (`rules.ts`) are pure functions over a context computed once per refresh (`context.ts`). The same data always gives the same findings, and text is templated, never generated. Each finding carries:
+* what happened;
+* evidence (facts, plus an optional table);
+* why it matters;
+* a suggested action;
+* a ₹ impact with its formula (or `null` for unquantified risks);
+* assumptions;
+* a measurement plan: metric, baseline, target, direction and check-after days.
 
-1. `SLOW_MOVER_CAPITAL`: no sale in ≥ 90 days, stock value ≥ ₹X
-2. `MARGIN_EROSION`: GP% fell ≥ 5 pp vs prior period on material sales
-3. `DISCOUNT_LEAKAGE`: discount % rising while GP% falls
-4. `RECEIVABLES_OUTPACING_SALES`: AR growth > sales growth over 2 periods
-5. `CUSTOMER_CONCENTRATION`: top 5 customers ≥ 50 % of net sales
-6. `LAPSING_KEY_CUSTOMER`: purchase gap ≥ 2× their usual inter-purchase interval
-7. `STOCKOUT_REPEAT`: stock hit zero ≥ N times in 90 days with positive demand
+| Rule | Fires when | Impact estimate |
+|---|---|---|
+| `SLOW_MOVER_CAPITAL` | in stock, no sale for ≥ pack `slowMovingDays`, value ≥ ₹10K (top 10) | stock value at cost |
+| `MARGIN_EROSION` | group GP% over the last 90 days ≥ 5 pts below the same window last year, ≥ ₹50K sales | pts lost × sales × 365/90 |
+| `DISCOUNT_LEAKAGE` | group discount rate ≥ 2 pts above the same window last year | pts added × gross × 365/90 |
+| `COLLECTIONS_SLOWING` | business DSO up ≥ 7 days, or customers paying ≥ 15 days later than a year ago (≥ 3 paid invoices in each window) | DSO-based, or Σ credit sales/day × extra days |
+| `CUSTOMER_CONCENTRATION` | top 5 ≥ 50 % of net sales, or one buyer ≥ 25 % | none (risk) |
+| `LAPSING_KEY_CUSTOMER` | RFM segment "lapsing" (season-aware; see M6), top 10 by value | yearly purchases × business GP% |
+| `STOCKOUT_REPEAT` | ≥ 45 stockout days in the last year while still selling | units/day × stockout days × GP/unit |
+| `CHANNEL_LOSS_MAKER` | marketplace contribution < 0 over 12 months, ≥ 5 orders (top 10) | the loss |
+
+**Lifecycle** (`engine.ts`). `refreshFindings` upserts by `(tenant, dedupeKey)`:
+* open and snoozed findings are updated, and an expired snooze reopens;
+* resolved findings reopen;
+* accepted findings keep their frozen measurement plan;
+* dismissed findings stay dismissed;
+* open findings no longer produced are resolved by `system`.
+
+Only the owner (`CAN_DECIDE`) accepts, snoozes, dismisses or reopens a finding; every decision is audit-logged.
+
+**Measurement.** Accepting records `startedOn` (the data date) and `checkOn`. When imported data reaches `checkOn`, `measureOutcomes` measures the metric over `(startedOn, checkOn]` from the ledger and stores a `FindingOutcome`:
+* a verdict against the target;
+* a realised ₹ figure where it is directly measurable;
+* a caveat that the outcome does not prove causation.
+
+Estimates and measured results are never summed together. All dates are data dates, not wall-clock dates.
+
+### 2.3a Background jobs (`src/server/jobs/`) — built in M7
+
+* **Storage.** A `Job` table in Postgres; workers claim with `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1)`.
+* **Retries.** Retries with backoff (30 s, 2 min) up to 3 attempts. Data errors (validation, reconciliation) are not retried.
+* **Recovery.** Stale locks (> 15 min without a progress heartbeat) are requeued.
+* **Job types.** `import.commit`, `demo.load` and `findings.refresh`. Each data load is followed by a findings refresh and outcome measurement.
+* **Running jobs.** By default the web process drains the queue after enqueueing. With `JOBS_MODE=worker`, the web process only enqueues and `npm run worker` processes. Polling a queued job also nudges the queue, so a frozen serverless function is recovered.
+* **API.** It returns `202 { jobId }`, and the UI polls `/api/bi/jobs/{id}` for progress.
 
 ### 2.4 ML worker (`ml/`, Python)
 

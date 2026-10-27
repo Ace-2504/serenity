@@ -19,6 +19,8 @@ export type BiContext = {
 
 /** Who may do what inside a business. */
 export const CAN_IMPORT: MembershipRole[] = ["owner_admin", "accountant"];
+/** Accepting or dismissing a recommendation is a business decision: the owner's alone. */
+export const CAN_DECIDE: MembershipRole[] = ["owner_admin"];
 
 /**
  * Resolves the signed-in user's active business. Membership lookup is the one cross-tenant

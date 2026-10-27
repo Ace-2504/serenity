@@ -11,6 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "seed:admin": "node scripts/seed-admin.mjs",
     "demo:generate": "tsx --tsconfig tsconfig.json scripts/generate-demo.ts",
+    "worker": "tsx --tsconfig tsconfig.json scripts/worker.ts",
+    "findings:refresh": "tsx --tsconfig tsconfig.json scripts/refresh-findings.ts",
     "test": "vitest run",
     "test:int": "vitest run -c vitest.integration.config.ts"
   },

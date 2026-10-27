@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BusinessSwitcher } from "@/components/bi/business-switcher";
+import { JobBanner } from "@/components/bi/job-banner";
 import { getBiContext } from "@/server/bi/context";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,9 @@ export default async function BiLayout({ children }: { children: React.ReactNode
   const resolved = await getBiContext();
   if (!resolved) redirect("/admin/login");
   const tenant = resolved.context?.tenant;
+  const job = resolved.context
+    ? await resolved.context.db.job.findFirst({ where: { status: { in: ["queued", "running"] } }, orderBy: { createdAt: "desc" }, select: { id: true, progress: true } })
+    : null;
 
   return (
     <main className="min-h-screen w-full px-4 pb-14 pt-8 md:px-8 xl:px-12">
@@ -27,6 +31,7 @@ export default async function BiLayout({ children }: { children: React.ReactNode
             <BusinessSwitcher active={tenant.id} options={resolved.memberships.map((m) => ({ tenantId: m.tenantId, name: m.name, isDemo: m.isDemo }))} />
           )}
           {[
+            { href: "/bi" as const, label: "Overview" },
             { href: "/bi/profitability" as const, label: "Profitability" },
             { href: "/bi/inventory" as const, label: "Inventory" },
             { href: "/bi/customers" as const, label: "Customers" },
@@ -40,6 +45,7 @@ export default async function BiLayout({ children }: { children: React.ReactNode
           ))}
         </nav>
       </header>
+      {job && <JobBanner jobId={job.id} initial={job.progress ?? "Working"} />}
       {children}
     </main>
   );

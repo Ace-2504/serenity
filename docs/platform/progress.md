@@ -296,3 +296,76 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 * Unallocated (on-account) receipts are not netted against receivables; template data always allocates receipts to bills.
 * The cash page takes about 4 s on the full demo: receivables are rebuilt for 13 month-end dates. Caching or snapshot tables can come with M7 jobs.
 * RFM thresholds are relative (quintiles), so segment sizes depend on the customer mix.
+
+---
+
+## M7 — Findings engine, home screen, background jobs
+
+**What was built**
+* **Eight deterministic rules** (`src/server/findings/rules.ts`): slow-moving capital, margin erosion, discount leakage, slowing collections, buyer concentration, lapsing key customer, repeated stockouts and channel loss-makers. Each finding answers seven questions:
+  1. what happened;
+  2. the evidence;
+  3. why it matters;
+  4. what to do;
+  5. the estimated ₹ impact, with its formula;
+  6. assumptions and limits;
+  7. how success will be measured.
+* **Lifecycle** (`engine.ts`):
+  * upsert by dedupe key after every import;
+  * owner-only accept, snooze (30 data-days), dismiss and reopen, audit-logged;
+  * accepted plans are frozen; findings that disappear are resolved by `system`;
+  * outcomes are measured from later data once it reaches the check date.
+* **Track record:** review and acceptance rates; estimated impact of accepted findings and measured results shown apart.
+* **Background jobs** (`src/server/jobs/`):
+  * Postgres queue with `SKIP LOCKED`, retries with backoff and stale-lock recovery;
+  * imports and demo loads run as jobs with live progress;
+  * `npm run worker` for a dedicated worker; `npm run findings:refresh` to re-run rules.
+* **Pages:**
+  * `/bi` overview: data status, four headline figures against last year, "What needs your attention" (top 10, status tabs), track record.
+  * `/bi/findings/[id]`: the seven sections, the evidence table, the decision with a note, outcomes.
+* **APIs:**
+  * `POST /api/bi/imports/{id}/commit` and `POST /api/bi/demo` now return `202 { jobId }`;
+  * `GET /api/bi/jobs/{id}`;
+  * `POST /api/bi/findings/{id}` (owner only);
+  * `POST /api/bi/findings/refresh`.
+
+**Calibration on the full demo** (asOf 30 Sep 2026, 33 findings)
+* **Collections.** Business-wide DSO barely moved (43 → 44 days): 25 slow payers among about 285 retailers are diluted in the aggregate. The rule therefore also fires on individual customers paying ≥ 15 days later than a year ago. It now lists exactly the 25 planted slow payers.
+* **Stockouts.** A 90-day window produced 12 noisy findings; ≥ 45 stockout days in the last year flags exactly the 2 planted items.
+* **Margin erosion and discount leakage.** Both fire for Pens only, the planted group. The reported purchase-cost change (+34 %) is higher than the planted +14 % because it is an average per unit and includes product mix; the finding says so.
+
+**Tests (actual results)**
+```
+npm test            11 files, 97 tests passed
+npm run test:int    6 files, 66 tests passed
+lint / tsc / build  clean (1 pre-existing lint warning)
+```
+* **Planted problems on the scaled two-year demo:**
+  * every slow-mover finding is a planted slow mover;
+  * margin erosion fires for the planted group only;
+  * collections lists only planted slow payers (≥ 80 % of them);
+  * both planted lapsing accounts are flagged;
+  * stockouts are exactly the planted items;
+  * findings are deterministic across runs.
+* **Lifecycle:**
+  * refresh is idempotent;
+  * transitions are enforced and audited;
+  * decisions survive later refreshes; expired snoozes reopen; vanished findings are resolved by the system.
+* **Outcomes.** Nobody acts in the demo data, so accepted findings are measured as *not achieved*. The margin outcome is negative (₹ −13K) and is reported as measured, not floored.
+* **Queue:**
+  * 30 concurrent claims on 20 jobs give 20 distinct jobs;
+  * duplicate enqueues are collapsed;
+  * transient failures retry up to 3 times; data errors are not retried;
+  * stale jobs are requeued, then failed.
+* **API:** commit runs as a job with reconciliation in the result; another business's jobs are hidden; analysts cannot decide on findings.
+* **Browser:**
+  * the full two-year demo loads through the UI as a background job in 151 s with step-by-step progress (it was a 300 s-limited request);
+  * `/bi` renders in about 1.3 s;
+  * accept-with-note works;
+  * no horizontal scroll at 390 px.
+
+**Known limitations**
+* In-process job draining on a serverless host can be frozen after the response. Recovery relies on the next status poll and the 15-minute stale-lock requeue. Use `JOBS_MODE=worker` or Docker in production.
+* Rule thresholds are fixed constants (`RULE_CONFIG`), not yet per-business settings.
+* Realised ₹ figures exist only where directly measurable: stock value, margin, discounts, customer GP and channel contribution per unit. For DSO, payer delay, concentration and stockouts, only the metric and verdict are recorded.
+* Snooze and check dates count data days, so a business that imports rarely sees them later in calendar time.

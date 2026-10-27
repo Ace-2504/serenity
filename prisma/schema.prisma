@@ -411,6 +411,9 @@ model Tenant {
   importFiles          ImportFile[]
   channelCharges       ChannelCharge[]
   billAllocations      BillAllocation[]
+  findings             Finding[]
+  findingOutcomes      FindingOutcome[]
+  jobs                 Job[]
 }
 
 model Membership {
@@ -621,10 +624,10 @@ model Voucher {
   tenantId            String
   dataSourceId        String
   sourceKey           String
-  sourceVersion     Int           @default(1)
+  sourceVersion       Int              @default(1)
   /// Position in the source's posting order (row order of the file); orders same-day vouchers
   /// for costing. Not part of the content hash, so inserting a voucher does not "change" others.
-  postingSeq        Int?
+  postingSeq          Int?
   sourceRecordId      String
   type                VoucherType
   number              String
@@ -853,4 +856,104 @@ model ChannelCharge {
   @@index([tenantId, channel, settlementDate])
   @@index([tenantId, orderVoucherId])
   @@index([tenantId, sourceRecordId])
+}
+
+enum FindingStatus {
+  open
+  accepted
+  dismissed
+  snoozed
+  resolved
+}
+
+/// measured = deterministic rule on the ledger; predicted = model output; suggested = AI-written.
+enum FindingKind {
+  measured
+  predicted
+  suggested
+}
+
+/// A recommendation produced by a deterministic rule, with its evidence, estimated impact,
+/// assumptions and how its outcome will be measured. See docs/platform/02-architecture.md 2.3.
+model Finding {
+  id              String           @id @default(uuid())
+  tenantId        String
+  ruleId          String
+  /// ruleId + entity: one live finding per rule and subject.
+  dedupeKey       String
+  entityType      String
+  entityId        String?
+  entityLabel     String
+  severity        String
+  kind            FindingKind      @default(measured)
+  asOf            DateTime         @db.Date
+  title           String
+  whatHappened    String
+  whyItMatters    String
+  suggestedAction String
+  evidence        Json
+  impactInr       Decimal?         @db.Decimal(18, 2)
+  impactFormula   String?
+  assumptions     Json             @default("[]")
+  measurePlan     Json
+  status          FindingStatus    @default(open)
+  statusChangedAt DateTime?
+  statusChangedBy String?
+  snoozedUntil    DateTime?        @db.Date
+  ownerNote       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outcomes        FindingOutcome[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, dedupeKey])
+  @@index([tenantId, status])
+}
+
+/// What actually happened after an accepted finding: measured from later data, never estimated.
+model FindingOutcome {
+  id                String   @id @default(uuid())
+  tenantId          String
+  findingId         String
+  measuredOn        DateTime @db.Date
+  metricValue       Decimal? @db.Decimal(18, 4)
+  realisedImpactInr Decimal? @db.Decimal(18, 2)
+  verdict           String
+  notes             String
+  createdAt         DateTime @default(now())
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  finding           Finding  @relation(fields: [findingId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, findingId])
+}
+
+enum JobStatus {
+  queued
+  running
+  done
+  failed
+}
+
+/// Postgres-backed job queue (claimed with FOR UPDATE SKIP LOCKED); no Redis needed at SME scale.
+model Job {
+  id         String    @id @default(uuid())
+  tenantId   String
+  type       String
+  payload    Json      @default("{}")
+  status     JobStatus @default(queued)
+  attempts   Int       @default(0)
+  runAfter   DateTime  @default(now())
+  lockedAt   DateTime?
+  lockedBy   String?
+  progress   String?
+  result     Json?
+  error      String?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([tenantId, createdAt])
 }

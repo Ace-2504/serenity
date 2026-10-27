@@ -5,6 +5,8 @@ import type { MembershipRole } from "@prisma/client";
 import { GET as getImport } from "@/app/api/bi/imports/[importId]/route";
 import { POST as commit } from "@/app/api/bi/imports/[importId]/commit/route";
 import { POST as upload } from "@/app/api/bi/imports/route";
+import { POST as decide } from "@/app/api/bi/findings/[findingId]/route";
+import { GET as getJob } from "@/app/api/bi/jobs/[jobId]/route";
 import { createSessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_TENANT_COOKIE } from "@/server/bi/context";
@@ -25,9 +27,19 @@ async function business(members: { userId: string; role: MembershipRole }[], isD
   return tenant.id;
 }
 
-function request(url: string, opts: { token?: string; tenantId?: string; body?: FormData; method?: string } = {}) {
+function request(url: string, opts: { token?: string; tenantId?: string; body?: FormData | string; method?: string } = {}) {
   const cookies = [opts.token && `${SESSION_COOKIE}=${opts.token}`, opts.tenantId && `${ACTIVE_TENANT_COOKIE}=${opts.tenantId}`].filter(Boolean).join("; ");
   return new NextRequest(new URL(url, "http://localhost"), { method: opts.method ?? "GET", headers: cookies ? { cookie: cookies } : {}, body: opts.body });
+}
+
+/** Waits for a background job to finish (the route starts it in-process). */
+async function settled(jobId: string) {
+  for (let i = 0; i < 600; i += 1) {
+    const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+    if (job.status === "done" || job.status === "failed") return job;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`job ${jobId} did not finish`);
 }
 
 function templateForm(): FormData {
@@ -93,12 +105,45 @@ describe("BI import API", () => {
     expect(denied.status).toBe(403);
 
     const committed = await commit(request(`/api/bi/imports/${batchId}/commit`, { method: "POST", token: owner.token, tenantId: realBusiness }), { params: { importId: batchId } });
-    expect(committed.status).toBe(200);
-    const result = await committed.json();
-    expect(result.reconciliation.every((r: { ok: boolean }) => r.ok)).toBe(true);
+    expect(committed.status).toBe(202);
+    const { jobId } = await committed.json();
+    // A second click while the job is queued or running returns the same job, not a second commit.
+    const duplicate = await commit(request(`/api/bi/imports/${batchId}/commit`, { method: "POST", token: owner.token, tenantId: realBusiness }), { params: { importId: batchId } });
+    if (duplicate.status === 202) expect((await duplicate.json()).jobId).toBe(jobId);
+    else expect(duplicate.status).toBe(409);
+
+    const job = await settled(jobId);
+    expect(job.status, job.error ?? "").toBe("done");
+    const result = job.result as { reconciliation: { ok: boolean }[]; findings: { produced: number } };
+    expect(result.reconciliation.every((r) => r.ok)).toBe(true);
+    expect(result.findings).toBeDefined();
+
+    const polled = await getJob(request(`/api/bi/jobs/${jobId}`, { token: analyst.token, tenantId: realBusiness }), { params: { jobId } });
+    expect((await polled.json()).status).toBe("done");
 
     const again = await commit(request(`/api/bi/imports/${batchId}/commit`, { method: "POST", token: owner.token, tenantId: realBusiness }), { params: { importId: batchId } });
     expect(again.status).toBe(409);
+  });
+
+  it("hides another business's jobs", async () => {
+    const other = await business([{ userId: outsider.id, role: "owner_admin" }]);
+    const job = await prisma.job.findFirstOrThrow({ where: { tenantId: realBusiness } });
+    const response = await getJob(request(`/api/bi/jobs/${job.id}`, { token: outsider.token, tenantId: other }), { params: { jobId: job.id } });
+    expect(response.status).toBe(404);
+  });
+
+  it("lets only the owner decide on a recommendation", async () => {
+    const finding = await prisma.finding.create({
+      data: { tenantId: realBusiness, ruleId: "TEST", dedupeKey: "TEST|1", entityType: "business", entityLabel: "x", severity: "low", asOf: new Date("2026-01-01"), title: "t", whatHappened: "w", whyItMatters: "y", suggestedAction: "a", evidence: { facts: [] }, measurePlan: { metric: "dso", baseline: 1, target: 1, checkAfterDays: 30, direction: "decrease" } }
+    });
+    const body = JSON.stringify({ action: "accept" });
+    const denied = await decide(request(`/api/bi/findings/${finding.id}`, { method: "POST", token: analyst.token, tenantId: realBusiness, body }), { params: { findingId: finding.id } });
+    expect(denied.status).toBe(403);
+    const accepted = await decide(request(`/api/bi/findings/${finding.id}`, { method: "POST", token: owner.token, tenantId: realBusiness, body }), { params: { findingId: finding.id } });
+    expect(accepted.status).toBe(200);
+    expect((await accepted.json()).measurePlan.checkOn).toBe("2026-01-31");
+    const twice = await decide(request(`/api/bi/findings/${finding.id}`, { method: "POST", token: owner.token, tenantId: realBusiness, body }), { params: { findingId: finding.id } });
+    expect(twice.status).toBe(409);
   });
 
   it("hides another business's imports", async () => {

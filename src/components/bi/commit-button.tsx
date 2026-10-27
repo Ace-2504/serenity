@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { postAndWait } from "@/components/bi/jobs";
 
 export function CommitButton({ importId, label = "Import into my books" }: { importId: string; label?: string }) {
   const router = useRouter();
@@ -10,11 +11,10 @@ export function CommitButton({ importId, label = "Import into my books" }: { imp
 
   async function commit() {
     setBusy(true);
-    setMessage("Saving and reconciling — large imports take a minute or two.");
-    const response = await fetch(`/api/bi/imports/${importId}/commit`, { method: "POST" });
-    const body = await response.json().catch(() => ({}));
+    setMessage("Queued — this runs in the background, you can leave this page.");
+    const error = await postAndWait(`/api/bi/imports/${importId}/commit`, undefined, setMessage);
     setBusy(false);
-    setMessage(response.ok ? null : `${body.message ?? "Import failed."} Nothing was saved.`);
+    setMessage(error ? `${error} Nothing was saved.` : null);
     router.refresh();
   }
 
