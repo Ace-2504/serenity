@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 export const MAX_ATTEMPTS = 3;
 export const STALE_AFTER_MINUTES = 15;
 
-export type JobType = "import.commit" | "demo.load" | "findings.refresh" | "ml.run";
+export type JobType = "import.commit" | "demo.load" | "findings.refresh" | "ml.run" | "campaign.send";
 
 /** Enqueues a job, or returns the one already queued or running for the same key (e.g. the same import). */
 export async function enqueueJob(tenantId: string, type: JobType, payload: Prisma.InputJsonObject, options: { createdBy?: string; dedupeKey?: string } = {}): Promise<Job> {

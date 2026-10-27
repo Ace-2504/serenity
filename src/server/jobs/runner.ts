@@ -4,6 +4,8 @@ import { loadDemoData, type DemoSize } from "@/server/bi/demo";
 import { forTenant } from "@/server/db/tenant";
 import { measureOutcomes, refreshFindings } from "@/server/findings/engine";
 import { commitImport, ImportError } from "@/server/ingest/pipeline";
+import { sendCampaign } from "@/server/campaigns/service";
+import { WorkflowError } from "@/server/campaigns/workflow";
 import { MlUnavailableError, runMlWorker } from "@/server/ml/worker";
 import { claimJob, completeJob, enqueueJob, failJob, requeueStale, setProgress, type JobType } from "@/server/jobs/queue";
 
@@ -27,7 +29,8 @@ const STEP_LABELS: Record<string, string> = {
   ledger: "Rebuilding the stock ledger",
   reconcile: "Reconciling totals",
   findings: "Looking for problems and opportunities",
-  ml: "Training and testing the prediction models"
+  ml: "Training and testing the prediction models",
+  campaign: "Sending the approved campaign"
 };
 
 type Handler = (job: Job, progress: (step: string) => void) => Promise<Prisma.InputJsonValue>;
@@ -54,6 +57,11 @@ const HANDLERS: Record<JobType, Handler> = {
     return { ...loaded, ...(await afterDataChange(job.tenantId, progress)) } as Prisma.InputJsonValue;
   },
   "findings.refresh": async (job, progress) => afterDataChange(job.tenantId, progress) as Promise<Prisma.InputJsonValue>,
+  "campaign.send": async (job, progress) => {
+    progress("campaign");
+    const { campaignId } = job.payload as { campaignId: string };
+    return sendCampaign(forTenant(job.tenantId), job.tenantId, campaignId, process.env.APP_URL ?? "http://localhost:3000");
+  },
   "ml.run": async (job, progress) => {
     progress("ml");
     return (await runMlWorker(job.tenantId)) as Prisma.InputJsonValue;
@@ -61,7 +69,7 @@ const HANDLERS: Record<JobType, Handler> = {
 };
 
 /** Data errors (failed validation, reconciliation) and a missing ML install will fail again; anything else may be transient. */
-const isRetryable = (error: unknown) => !(error instanceof ImportError || error instanceof MlUnavailableError);
+const isRetryable = (error: unknown) => !(error instanceof ImportError || error instanceof MlUnavailableError || error instanceof WorkflowError);
 
 export async function runJob(job: Job): Promise<void> {
   const handler = HANDLERS[job.type as JobType];

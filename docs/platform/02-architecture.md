@@ -130,27 +130,31 @@ Estimates and measured results are never summed together. All dates are data dat
   * **Basket pairs.** Support, confidence and lift; a statistic, not a model.
 * **Ship rule.** A model ships only if it beats the best baseline: by ≥ 0.01 mean AUC while winning most windows (repeat purchase), or by ≥ 2% mean MASE (demand). Otherwise the baseline ships, and the Predictions page says so.
 
-### 2.5 Assistant (`src/server/assistant/`)
+### 2.5 Assistant (`src/server/assistant/`) — built in M9
 
 ```
-question ─▶ LLM (tools = registry subset, JSON schema args) ─▶ tool call(s) ─▶ server validates args (Zod) ─▶ executes metric/ML tool
-        ◀── LLM writes explanation from tool results ◀──────────────────────────────────────────────┘
-        ─▶ numeric guard: every number in the answer must match a tool-result value (tolerant to rounding/format)
-             fail → show tool tables + templated explanation, log the guard failure
+question ─▶ model (11 tools, JSON-schema args) ─▶ tool call(s) ─▶ server validates args (Zod) ─▶ runs a report function
+        ◀── model writes the answer from the tool results ◀──────────────────────────────────────┘
+        ─▶ numeric guard: every number in the answer must match a tool-result value (within its displayed rounding)
+             fail → the report's own templated summary is shown instead, with a note; the failure is logged
 ```
 
-* There is **no SQL generation.** The tools are parameterised functions over the metrics layer.
-* Every answer stores `(question, tool calls, arguments, result hashes, model id, latency)` in `AssistantLog`.
-* The model and hardware are configurable; see §4.
+* **No SQL generation.** The 11 tools (`tools.ts`) are parameterised functions over the analytics layer: profit overview, top products, product detail, slow stock, customer segments, customer detail, receivables, cash cycle, open findings, channel performance, metric definition. An unknown tool name or invalid argument is returned to the model as an error, so it can correct itself.
+* **Retries and fallback.** At most 4 tool rounds. If the model answers without calling a tool, it is asked once more; then a keyword router picks the matching report and its template answers. With no model configured or reachable, the router answers directly; questions it cannot route get "only questions about the approved reports".
+* **Model client** (`llm.ts`): any OpenAI-compatible server (Ollama, llama.cpp server), `temperature 0`. A non-local `LLM_BASE_URL` is refused unless `LLM_ALLOW_REMOTE=1`.
+* **Log.** `AssistantLog` stores the question, mode, tool names and arguments, guard result and unmatched numbers, model name and latency — not the tool results.
+* **Verification status.** Tested with a scripted model standing in for the server (routing, argument errors, guard, retry, fallback). A real local model has not been run in CI or in the development environment, so tool-selection accuracy is not yet measured.
 
-### 2.6 Campaigns (`src/server/campaigns/`)
+### 2.6 Campaigns (`src/server/campaigns/`) — built in M9
 
-States: `draft → audience_frozen → content_approved → test_sent → approved_to_send → sending → sent → measured`.
+States: `draft → audience_approved → content_approved → ready → sending → sent`, or `cancelled` before sending.
 
-* Only `owner_admin` can move a campaign to `approved_to_send`.
-* Channel adapters: `outbox` (local, default, writes to a table/file and is labelled "not sent"), `smtp_email` and `whatsapp_cloud`. WhatsApp business-initiated messages require an approved template and recorded opt-in.
-* Consent is checked at send time, not only at audience build time.
-* A random **holdout** (default 15 %) is drawn when the audience is frozen and receives nothing; the outcome compares the conversion of the treated group against the holdout.
+* **Owner approval, in order:** audience, content, offer (only if there is one), send. Only `owner_admin` can approve or send. Editing an approved part withdraws every later approval. An offer is a promise in the message, capped at 50 % off; nothing is discounted automatically.
+* **Audiences:** customers lapsing from their usual cycle, valuable customers with a low repeat probability (from M8), past buyers of an item, or a customer segment.
+* **Consent** (`ContactConsent`) is append-only; the latest record per customer and channel decides. It is checked when the audience is built and again at send time. Every message carries an unsubscribe link (HMAC token, no login) that records a revocation.
+* **Holdout.** A deterministic share (default 10 %) of eligible customers is held back and receives nothing. Results compare orders in the 30 days after sending, treatment vs holdout, by intent to treat (customers who opt out later stay in their group). Results appear only once imported invoices cover those 30 days.
+* **Transports:** `outbox` (default; messages are stored, marked "held" and labelled as not sent) and SMTP email when `SMTP_URL` is set (with `List-Unsubscribe` headers). WhatsApp is not implemented.
+* Sending runs as the `campaign.send` background job.
 
 ## 3. Security and tenancy
 
@@ -180,8 +184,8 @@ Model names are configuration (`LLM_MODEL`), not code. The candidate list is re-
 
 | Component | Default | What is sent | How to disable |
 |---|---|---|---|
-| Local LLM | on-box | nothing external | `LLM_PROFILE=off` |
-| Remote LLM endpoint | **disabled** | the question + tool results | requires `LLM_ALLOW_REMOTE=true` + explicit owner toggle |
+| Local LLM | on-box | nothing external | the assistant uses templates when no model server answers |
+| Remote LLM endpoint | **disabled** | the question + tool results | refused unless `LLM_ALLOW_REMOTE=1` |
 | Email (SMTP) | disabled | recipient, message body | channel not configured |
 | WhatsApp Cloud API | disabled | phone, template params | channel not configured |
 | Cloudinary | storefront only | product images | existing env |

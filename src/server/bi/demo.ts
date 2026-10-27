@@ -4,6 +4,7 @@ import { generateDemoDataset } from "@/server/demo/engine";
 import { datasetToFiles } from "@/server/demo/files";
 import { scaledProfile } from "@/server/demo/profiles/scale";
 import { stationeryDemoProfile } from "@/server/demo/profiles/stationery";
+import { inHoldout } from "@/server/campaigns/tokens";
 import { commitImport, stageImport } from "@/server/ingest/pipeline";
 
 export type DemoSize = "quick" | "full";
@@ -40,6 +41,7 @@ export async function loadDemoData(tenantId: string, size: DemoSize, userId?: st
     throw new Error(`Demo data failed validation (${staged.summary.issues.errors} errors)`);
   }
   const committed = await commitImport(db, tenantId, staged.batchId, { userId, onStep });
+  await seedDemoConsents(tenantId);
   return { batchId: staged.batchId, durationMs: committed.durationMs };
 }
 
@@ -47,4 +49,18 @@ export async function loadDemoData(tenantId: string, size: DemoSize, userId?: st
 export async function createDemoBusiness(userId: string, size: DemoSize) {
   const tenant = await createDemoTenant(userId, size);
   return { tenantId: tenant.id, ...(await loadDemoData(tenant.id, size, userId)) };
+}
+
+/**
+ * The demo business is fictional, so are its customers' consents: 70% of customers with an email
+ * address (example.com, which never delivers) get a consent record labelled as demo data.
+ * Real businesses start with no consent and record it themselves.
+ */
+async function seedDemoConsents(tenantId: string) {
+  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { isDemo: true } });
+  if (!tenant.isDemo) return;
+  const db = forTenant(tenantId);
+  const parties = await db.party.findMany({ where: { email: { not: null }, anonymousBuyers: false }, select: { id: true } });
+  const chosen = parties.filter((p) => inHoldout("demo-consent", p.id, 70));
+  await db.contactConsent.createMany({ data: chosen.map((p) => ({ tenantId, partyId: p.id, channel: "email", status: "granted", source: "Demo data: fictional consent" })) });
 }

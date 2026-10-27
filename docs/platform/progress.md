@@ -546,3 +546,50 @@ npm run test:int    10 files, 86 tests passed (ML worker: 4; 370-430 s)
 * Demand forecasts are point forecasts, without intervals; promotions, prices and stockouts are not modelled (lost demand during stockouts lowers the history).
 * The "products likely to run out" list ignores open purchase orders to suppliers, which the books don't hold.
 * Predictions are not yet turned into findings or campaign audiences; that is M9.
+
+---
+
+## M9 — Assistant with numeric guard, and owner-approved campaigns
+
+**What was built**
+* **Assistant** (`src/server/assistant/`, page `/bi/assistant`, `POST /api/bi/assistant`):
+  * 11 read-only tools over the analytics layer, with Zod arguments published to the model as JSON Schema; no SQL generation;
+  * an OpenAI-compatible client for a local model server (Ollama or llama.cpp server). It refuses a non-local `LLM_BASE_URL` unless `LLM_ALLOW_REMOTE=1`;
+  * the **numeric guard** (`guard.ts`): every number in an answer (₹, Rs, Cr/L/K/lakh, %, plain figures; dates ignored) must match a tool-result value within its displayed rounding, otherwise the answer is withheld and the report's own templated summary is shown with a note;
+  * if the model answers without a tool it is asked once more, then a keyword router picks the report. With no model server, the router answers from templates and says so;
+  * `AssistantLog` records the question, tools and arguments, guard result, model and latency (not the data); 20 questions per minute per user.
+* **Campaigns** (`src/server/campaigns/`, pages `/bi/campaigns`, `/bi/campaigns/[id]`, `/u/[token]`):
+  * audiences: lapsing valuable customers, valuable customers with a low repeat probability (M8), past buyers of an item, a segment;
+  * the owner approves the audience, the message, the offer (if any) and the send, in that order; editing withdraws later approvals; only `owner_admin` approves or sends;
+  * offers are capped at 50 % off, must appear in the message (`{{offer}}`) before they can be approved, and are only a promise in the text: nothing is discounted automatically;
+  * consent is append-only per customer and channel, recorded on the customer page, re-checked at send; every message carries an HMAC unsubscribe link that works without login;
+  * a deterministic holdout (default 10 %) receives nothing; results compare orders in the 30 days after sending, treatment vs holdout, by intent to treat, and appear only once imported invoices cover those 30 days;
+  * **transport:** the local outbox by default (messages are stored as "held", the page says nothing was sent); SMTP when `SMTP_URL` is set. WhatsApp is not implemented;
+  * "Suggest wording" uses the local model if one answers, else a template; a suggestion with any number other than the offer is replaced by the template. Suggestions are never saved or sent without the owner;
+  * sending runs as the `campaign.send` job.
+* **Demo:** 70 % of demo customers with an email get a consent record labelled "Demo data: fictional consent".
+
+**Results (demo business, browser check on the production build)**
+* Lapsing-customer campaign: 40 customers in the audience; 14 excluded for no consent; of the 26 eligible, 2 held back and 24 put in the outbox. (Consent and the holdout split are drawn afresh with each demo load and campaign; an earlier run gave 13 excluded, 6 held back, 21 sent.)
+* Screenshots: `screenshots/m9-campaign-sent.png`, `screenshots/m9-assistant.png`.
+* The results section says results appear after 26 Nov 2026, because the demo data ends on 30 Sep 2026.
+* Assistant with no model server: "Who owes me money?" → "Customers owe ₹1.22 Cr, of which ₹29.1 L is overdue…", marked "Answered from the report itself".
+* No horizontal overflow at 390 px on either page.
+
+**Not verified: a real local model.** The environment's network policy blocks ollama.com, registry.ollama.ai, huggingface.co and GitHub release downloads, so no model could be installed. The model path is tested with a scripted model that returns tool calls and answers, including wrong numbers. Tool-selection accuracy of a real model is **not measured yet**; to measure it, run Ollama locally (`ollama pull qwen2.5:7b-instruct`) and use the assistant page.
+
+**Tests (actual results)**
+```
+npm test            16 files, 145 tests passed (21 new: guard 8, workflow 10, drafts 3)
+npm run test:int    12 files, 102 tests passed (303 s) (16 new: assistant 9, campaigns 7)
+pytest (ml/)        16 passed
+```
+* **Guard:** altered numbers are rejected; rounding, units (Cr, L, %) and fraction-to-percent are accepted; digits inside names are not counted as claims.
+* **Assistant (scripted model):** a correct answer passes; an altered number is withheld and replaced by the report summary; an argument error is returned to the model and corrected; a reply without a tool is retried once and then routed; no-model and unsupported questions; remote endpoints refused.
+* **Campaigns against Postgres:** only customers whose latest consent record is a grant are contacted; the holdout is stable; nothing is sent before every approval; a 80 % offer is refused; editing withdraws approvals; a customer who opts out after approval is skipped at send; messages stay in the outbox with a working unsubscribe link; a forged token is refused; the next campaign excludes the unsubscribed customer; results by group; an accountant cannot approve (403).
+
+**Known limitations**
+* No real model verified (above). Answers cover the 11 reports only; anything else is declined.
+* Email only. WhatsApp needs a Meta Business account, approved templates and recorded opt-in; not built.
+* Consent is recorded by the owner; there is no customer-facing opt-in form yet.
+* Results count orders after sending; they do not prove the message caused them, except through the treatment–holdout difference, which is noisy for small audiences (the page shows group sizes).

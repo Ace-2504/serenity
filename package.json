@@ -22,6 +22,7 @@
     "csv-parse": "^7.0.3",
     "fast-xml-parser": "4.5.7",
     "next": "14.2.5",
+    "nodemailer": "10.0.16",
     "razorpay": "^2.9.6",
     "react": "18.3.1",
     "react-dom": "18.3.1",

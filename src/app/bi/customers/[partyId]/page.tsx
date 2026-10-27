@@ -7,7 +7,8 @@ import { channelLabel } from "@/server/analytics/context";
 import { customerRfm, SEGMENT_LABELS } from "@/server/analytics/customers";
 import { dataSpan } from "@/server/analytics/profitability";
 import { openBills, sumPending } from "@/server/analytics/working-capital";
-import { getBiContext } from "@/server/bi/context";
+import { ConsentForm } from "@/components/bi/campaign-forms";
+import { CAN_IMPORT, getBiContext } from "@/server/bi/context";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function CustomerPage({ params }: { params: { partyId: stri
   const [party, span] = await Promise.all([bi.db.party.findUnique({ where: { id: params.partyId } }), dataSpan(bi.db)]);
   if (!party || !span) notFound();
 
+  const consents = await bi.db.contactConsent.findMany({ where: { partyId: party.id }, orderBy: { recordedAt: "desc" }, take: 5 });
   const [rfm, bills, invoices, monthly] = await Promise.all([
     customerRfm(bi.db, bi.tenant.id, span.to),
     openBills(bi.db, bi.tenant.id, "receivable", span.to),
@@ -98,6 +100,30 @@ export default async function CustomerPage({ params }: { params: { partyId: stri
           </table>
         </div>
       </section>
+      {!party.anonymousBuyers && (
+        <section className="rounded-xl2 border border-mist bg-canvas p-5">
+          <h2 className="font-display text-2xl">Permission to contact</h2>
+          <p className="mt-1 text-sm text-graphite">
+            Campaigns only reach customers whose latest record says they agreed. {party.email ? `Email on file: ${party.email}.` : "No email address on file."}
+          </p>
+          {consents.length === 0 ? (
+            <p className="mt-2 text-sm">No consent recorded: this customer will not be contacted.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm">
+              {consents.map((c) => (
+                <li key={c.id}>
+                  {formatDate(c.recordedAt)}: {c.channel} {c.status === "granted" ? "agreed" : "opted out"} ({c.source})
+                </li>
+              ))}
+            </ul>
+          )}
+          {CAN_IMPORT.includes(bi.role) && (
+            <div className="mt-3">
+              <ConsentForm partyId={party.id} />
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -416,6 +416,11 @@ model Tenant {
   predictions          Prediction[]
   forecastPoints       ForecastPoint[]
   basketPairs          BasketPair[]
+  assistantLogs        AssistantLog[]
+  consents             ContactConsent[]
+  campaigns            Campaign[]
+  campaignRecipients   CampaignRecipient[]
+  outboxMessages       OutboxMessage[]
   billAllocations      BillAllocation[]
   findings             Finding[]
   findingOutcomes      FindingOutcome[]
@@ -555,6 +560,8 @@ model Party {
   vouchers           Voucher[]
   outstanding        OutstandingSnapshot[]
   customerOrderLines CustomerOrderLine[]
+  consents           ContactConsent[]
+  campaignRecipients CampaignRecipient[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, sourceKey])
@@ -1075,4 +1082,118 @@ model BasketPair {
 
   @@index([tenantId, modelVersionId])
   @@index([tenantId, itemId])
+}
+
+/// One assistant question: which tools ran with which arguments, and whether the answer passed
+/// the numeric guard. Tool results are not stored (they can hold customer data).
+model AssistantLog {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String?
+  question  String
+  mode      String
+  tools     Json     @default("[]")
+  guardOk   Boolean?
+  unmatched Json     @default("[]")
+  model     String?
+  latencyMs Int
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+/// Permission to contact a customer on a channel. Append-only: the latest record decides.
+model ContactConsent {
+  id         String   @id @default(uuid())
+  tenantId   String
+  partyId    String
+  channel    String
+  status     String
+  source     String
+  evidence   String?
+  recordedAt DateTime @default(now())
+  recordedBy String?
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  party      Party    @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, partyId, channel, recordedAt])
+}
+
+/// A customer campaign. Nothing is sent until the owner has approved the audience, the content,
+/// the offer (if any) and the send itself; editing an approved part withdraws later approvals.
+model Campaign {
+  id                 String              @id @default(uuid())
+  tenantId           String
+  name               String
+  goal               String
+  channel            String              @default("email")
+  audience           Json
+  offer              Json?
+  subject            String?
+  body               String?
+  holdoutPct         Int                 @default(10)
+  status             String              @default("draft")
+  audienceApprovedAt DateTime?
+  audienceApprovedBy String?
+  contentApprovedAt  DateTime?
+  contentApprovedBy  String?
+  offerApprovedAt    DateTime?
+  offerApprovedBy    String?
+  sendApprovedAt     DateTime?
+  sendApprovedBy     String?
+  sentAt             DateTime?
+  createdBy          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipients         CampaignRecipient[]
+  messages           OutboxMessage[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+}
+
+model CampaignRecipient {
+  id          String          @id @default(uuid())
+  tenantId    String
+  campaignId  String
+  partyId     String
+  group       String
+  eligibility String
+  status      String          @default("pending")
+  sentAt      DateTime?
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign    Campaign        @relation(fields: [campaignId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  party       Party           @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  messages    OutboxMessage[]
+
+  @@unique([id, tenantId])
+  @@unique([campaignId, partyId])
+  @@index([tenantId, campaignId])
+  @@index([tenantId, partyId])
+}
+
+/// Every message the platform produced. transport "outbox" never leaves this machine.
+model OutboxMessage {
+  id          String            @id @default(uuid())
+  tenantId    String
+  campaignId  String
+  recipientId String
+  channel     String
+  toAddress   String
+  subject     String
+  body        String
+  status      String
+  transport   String
+  providerId  String?
+  error       String?
+  createdAt   DateTime          @default(now())
+  sentAt      DateTime?
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign    Campaign          @relation(fields: [campaignId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  recipient   CampaignRecipient @relation(fields: [recipientId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, campaignId])
+  @@index([tenantId, recipientId])
 }
