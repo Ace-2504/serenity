@@ -342,6 +342,19 @@ async function storeIssues(tx: TenantTx, tenantId: string, batchId: string, issu
 
 // ── Writing ─────────────────────────────────────────────────────────────────
 
+/**
+ * Refreshes planner statistics for tables just bulk-loaded in this transaction (ANALYZE inside
+ * a transaction counts its own uncommitted rows and samples at most 30k rows, so it is cheap).
+ * Each referenced table is analysed before rows that reference it are inserted. Otherwise the
+ * foreign-key checks, and later lookups, are planned on stale statistics: after a big delete,
+ * autovacuum records the table as empty, and Postgres then checked each (id, tenantId) foreign
+ * key through the (tenantId, type, date) index, scanning every voucher of the tenant per line.
+ * Measured: 160-350 s instead of 5 s for 31k lines.
+ */
+async function analyze(tx: { $executeRawUnsafe(query: string): Promise<number> }, ...tables: string[]) {
+  await tx.$executeRawUnsafe(`ANALYZE ${tables.map((t) => `"${t}"`).join(", ")}`);
+}
+
 async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string, batchId: string, bundle: ParsedBundle, plan: Plan, step: (s: string) => void) {
   const now = new Date();
   const recordIds = new Map<string, string>();
@@ -374,6 +387,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
     await tx.sourceRecord.updateMany({ where: { id: { in: supersede.slice(i, i + CHUNK) } }, data: { supersededAt: now } });
   }
   await bulkInsert(tx, tenantId, "SourceRecord", COLUMNS.SourceRecord, newRecords);
+  if (newRecords.length > 0) await analyze(tx, "SourceRecord");
 
   const isWrite = (entity: string, key: string) => recordIds.get(`${entity}|${key}`);
 
@@ -437,6 +451,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
     }
   }
   await createChunked(newItems, (data) => tx.item.createMany({ data }));
+  if (newRecords.length > 0) await analyze(tx, "Party", "Item", "ItemGroup");
 
   // Vouchers (including opening stock and settlements). Ids are allocated up front so lines,
   // returns and allocations can reference vouchers created in the same batch.
@@ -612,6 +627,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         updatedAt: now
       }))
   );
+  if (headers.some((h) => h.isNew)) await analyze(tx, "Voucher");
   step("lines");
   await bulkInsert(
     tx,
@@ -621,13 +637,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
     lines.map((l) => ({ discountAmount: zero, taxRate: zero, taxAmount: zero, costAmount: null, ...l, id: randomUUID() }))
   );
   await bulkInsert(tx, tenantId, "BillAllocation", COLUMNS.BillAllocation, allocations.map((a) => ({ ...a, id: randomUUID() })));
-  // Planner statistics do not see rows inserted by this still-open transaction unless we
-  // ANALYZE here; without it, later lookups and the reconciliation can pick nested-loop plans
-  // (measured: 5.8 s instead of 18 ms for 5,800 lines). ANALYZE inside a transaction counts
-  // the transaction's own rows, and samples at most 30k rows per table, so it stays cheap.
-  if (newRecords.length > 0) {
-    await tx.$executeRawUnsafe('ANALYZE "SourceRecord", "Voucher", "VoucherLine", "BillAllocation", "Party", "Item"');
-  }
+  if (newRecords.length > 0) await analyze(tx, "VoucherLine", "BillAllocation");
 
   // Channel charges.
   step("charges");
@@ -655,7 +665,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
     else newCharges.push({ id: randomUUID(), tenantId, dataSourceId, sourceKey: c.key, ...data });
   }
   await bulkInsert(tx, tenantId, "ChannelCharge", COLUMNS.ChannelCharge, newCharges.map((c) => ({ ...c, updatedAt: now })));
-  if (newCharges.length > 0) await tx.$executeRawUnsafe('ANALYZE "ChannelCharge"');
+  if (newCharges.length > 0) await analyze(tx, "ChannelCharge");
 
   // Records the source has again after an earlier file dropped them: unchanged content, so no
   // new version was written above, but they must become active again.

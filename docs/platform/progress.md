@@ -337,7 +337,7 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 **Tests (actual results)**
 ```
 npm test            11 files, 97 tests passed
-npm run test:int    6 files, 66 tests passed
+npm run test:int    7 files, 67 tests passed (183 s, stable across back-to-back runs)
 lint / tsc / build  clean (1 pre-existing lint warning)
 ```
 * **Planted problems on the scaled two-year demo:**
@@ -363,6 +363,15 @@ lint / tsc / build  clean (1 pre-existing lint warning)
   * `/bi` renders in about 1.3 s;
   * accept-with-note works;
   * no horizontal scroll at 390 px.
+
+**Fixed: intermittent slow imports (and the M6 CI failure)**
+* **Symptom.** CI for the M6 commit failed with a 120 s hook timeout. Locally, the same commit alternated between about 30 s and 180–350 s.
+* **Diagnosis:**
+  * activity sampling showed CPU-bound bulk inserts, with no lock waits;
+  * `auto_explain` on nested statements showed each `(id, tenantId)` foreign-key check planned through `Voucher (tenantId, type, date)`, filtering on `id`. That scanned all of the tenant's vouchers once per line.
+* **Cause.** The table statistics described many tenants with a few rows each, the state left by test files that create many small businesses. In that state the wrong index looks marginally cheaper (8.27 against 8.43).
+* **Fix.** The pipeline now runs `ANALYZE` on each table right after bulk-loading it, before inserting rows that reference it. Previously there was a single `ANALYZE` after the lines.
+* **Proof.** With seeded "tiny tenant" statistics, the same commit took 328 s before the fix and 30 s after. `src/server/ingest/planner.int.test.ts` keeps it that way.
 
 **Known limitations**
 * In-process job draining on a serverless host can be frozen after the response. Recovery relies on the next status poll and the 15-minute stale-lock requeue. Use `JOBS_MODE=worker` or Docker in production.
