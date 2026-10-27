@@ -18,14 +18,14 @@ const pharmacyAttributes = z
   });
 
 /**
- * Planned second domain (roadmap M12). Defined now so the core is built against
- * batch/expiry and tax-inclusive pricing from the start. Regulatory notes in
- * docs/platform/08-domain-packs.md need legal review before launch.
+ * Second domain (roadmap M12): batch/expiry stock, MRP-inclusive retail billing and stricter
+ * campaign rules. The regulatory notes in docs/platform/08-domain-packs.md have NOT been
+ * reviewed by a lawyer; they need that review before a real pharmacy relies on them.
  */
 export const pharmacyPack: DomainPack = {
   id: "pharmacy",
   label: "Retail pharmacy / chemist",
-  status: "planned",
+  status: "active",
   itemAttributes: pharmacyAttributes,
   batchTracking: "required",
   pricesIncludeTax: true,
@@ -51,8 +51,11 @@ export const pharmacyPack: DomainPack = {
       }
 
       return { allowed: true };
-    }
+    },
+    // A discount on "your next order" would also apply to Schedule H medicines.
+    generalOffersAllowed: false
   },
+  sensitiveCustomerData: true,
   glossary: {
     "batch no": "Batch",
     "exp dt": "Expiry date",

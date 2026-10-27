@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getDomainPack } from "@/domain/packs";
 import { z } from "zod";
 import { dataSpan } from "@/server/analytics/profitability";
 import { ask, type AssistantAnswer } from "@/server/assistant/assistant";
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
   let modelName: string | null = null;
   let answer: AssistantAnswer;
   try {
-    const model = new OpenAICompatibleModel();
+    const model = new OpenAICompatibleModel(process.env, { localOnly: getDomainPack(bi.tenant.domainPack).sensitiveCustomerData });
     modelName = model.name;
     answer = await ask(ctx, parsed.data.question, model);
   } catch (error) {

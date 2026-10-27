@@ -312,9 +312,76 @@ function entries(bundle: ParsedBundle): (Entry & { draft: unknown })[] {
 
 function openingStockDraft(bundle: ParsedBundle) {
   const period = bundle.controlTotals[0];
-  const lines = bundle.items.filter((i) => i.openingQty.gt(0)).map((i) => ({ itemCode: i.code, qty: i.openingQty, value: i.openingValue }));
+  const batchesOf = new Map<string, ParsedBundle["batches"]>();
+  for (const b of bundle.batches) if (b.openingQty.gt(0)) batchesOf.set(b.itemCode, [...(batchesOf.get(b.itemCode) ?? []), b]);
+  const lines: { itemCode: string; qty: Prisma.Decimal; value: Prisma.Decimal | null; batchNo?: string }[] = [];
+  for (const i of bundle.items.filter((it) => it.openingQty.gt(0))) {
+    const batches = batchesOf.get(i.code);
+    if (!batches) {
+      lines.push({ itemCode: i.code, qty: i.openingQty, value: i.openingValue });
+      continue;
+    }
+    // One line per batch. Batch values when all are given, else the item's value split by quantity.
+    const allValued = batches.every((b) => b.openingValue !== null);
+    let left = i.openingValue;
+    batches.forEach((b, n) => {
+      let value: Prisma.Decimal | null = null;
+      if (allValued) value = b.openingValue;
+      else if (i.openingValue !== null && left !== null) {
+        value = n === batches.length - 1 ? left : i.openingValue.mul(b.openingQty).div(i.openingQty).toDecimalPlaces(2, D.ROUND_HALF_UP);
+        left = left.sub(value);
+      }
+      lines.push({ itemCode: i.code, qty: b.openingQty, value, batchNo: b.batchNo });
+    });
+  }
   if (!period || lines.length === 0) return null;
   return { key: `opening_stock|${period.from}`, date: period.from, lines };
+}
+
+/** Every batch the bundle mentions, with the first expiry, manufacture date and MRP given for it. */
+function batchSpecs(bundle: ParsedBundle) {
+  const specs = new Map<string, { itemCode: string; batchNo: string; expiryDate: string | null; mfgDate: string | null; mrp: Prisma.Decimal | null }>();
+  const note = (itemCode: string, batchNo: string, expiryDate: string | null | undefined, mfgDate: string | null | undefined, mrp: Prisma.Decimal | null | undefined) => {
+    const key = `${itemCode}|${batchNo}`;
+    const s = specs.get(key) ?? { itemCode, batchNo, expiryDate: null, mfgDate: null, mrp: null };
+    s.expiryDate ??= expiryDate ?? null;
+    s.mfgDate ??= mfgDate ?? null;
+    s.mrp ??= mrp ?? null;
+    specs.set(key, s);
+  };
+  for (const b of bundle.batches) note(b.itemCode, b.batchNo, b.expiryDate, b.mfgDate, b.mrp);
+  for (const v of bundle.vouchers) for (const l of v.lines) if (l.batchNo) note(l.itemCode, l.batchNo, l.expiryDate, null, l.mrp);
+  return [...specs.values()];
+}
+
+/** Creates missing batches and fills in expiry, manufacture date or MRP learned later. Returns ids by "itemId|batchNo". */
+async function upsertBatches(tx: TenantTx, tenantId: string, bundle: ParsedBundle, itemIds: Map<string, string>) {
+  const specs = batchSpecs(bundle).filter((s) => itemIds.has(s.itemCode));
+  const ids = new Map<string, string>();
+  if (specs.length === 0) return ids;
+  const asData = (s: (typeof specs)[number]) => ({
+    expiryDate: s.expiryDate ? new Date(s.expiryDate) : null,
+    mfgDate: s.mfgDate ? new Date(s.mfgDate) : null,
+    mrp: s.mrp
+  });
+  await createChunked(
+    specs.map((s) => ({ tenantId, itemId: itemIds.get(s.itemCode)!, batchNo: s.batchNo, ...asData(s) })),
+    (data) => tx.batch.createMany({ data, skipDuplicates: true })
+  );
+  const itemIdList = [...new Set(specs.map((s) => itemIds.get(s.itemCode)!))];
+  for (let i = 0; i < itemIdList.length; i += CHUNK) {
+    const rows = await tx.batch.findMany({ where: { itemId: { in: itemIdList.slice(i, i + CHUNK) } }, select: { id: true, itemId: true, batchNo: true, expiryDate: true, mfgDate: true, mrp: true } });
+    for (const r of rows) ids.set(`${r.itemId}|${r.batchNo}`, r.id);
+    const byKey = new Map(rows.map((r) => [`${r.itemId}|${r.batchNo}`, r]));
+    for (const s of specs) {
+      const row = byKey.get(`${itemIds.get(s.itemCode)}|${s.batchNo}`);
+      if (!row) continue;
+      const missing = { ...(row.expiryDate === null && s.expiryDate ? { expiryDate: new Date(s.expiryDate) } : {}), ...(row.mfgDate === null && s.mfgDate ? { mfgDate: new Date(s.mfgDate) } : {}), ...(row.mrp === null && s.mrp ? { mrp: s.mrp } : {}) };
+      if (Object.keys(missing).length > 0) await tx.batch.update({ where: { id: row.id }, data: missing });
+    }
+  }
+  await analyze(tx, "Batch");
+  return ids;
 }
 
 /**
@@ -338,7 +405,17 @@ async function loadKnown(tx: TenantTx, dataSourceId: string, kind: ParsedBundle[
 
 async function validateAttributes(tx: TenantTx, tenantId: string, bundle: ParsedBundle, log: IssueLog) {
   const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { domainPack: true } });
-  const schema = getDomainPack(tenant.domainPack).itemAttributes;
+  const pack = getDomainPack(tenant.domainPack);
+  const schema = pack.itemAttributes;
+  if (pack.batchTracking === "required") {
+    const lines = bundle.vouchers.filter((v) => v.type === "sales_invoice" || v.type === "purchase_invoice").flatMap((v) => v.lines);
+    const missing = lines.filter((l) => !l.batchNo).length;
+    if (missing > 0) {
+      log.warning("MISSING_BATCH", "voucher", `${missing} of ${lines.length} purchase and sales lines have no batch_no. ${pack.label} stock is tracked by batch, so expiry reports will treat their stock as consumed earliest-expiry-first`, {
+        field: "batch_no"
+      });
+    }
+  }
   for (const item of bundle.items) {
     const result = schema.safeParse(item.attributes);
     if (!result.success) {
@@ -576,6 +653,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
   const rewritten: string[] = [];
   const zero = new D(0);
 
+  const batchIds = await upsertBatches(tx, tenantId, bundle, itemIds);
   const opening = openingStockDraft(bundle);
   if (opening && isWrite("opening_stock", opening.key)) {
     const isNew = !existingKeys.has(opening.key);
@@ -607,7 +685,8 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         grossAmount: l.value ?? zero,
         taxableAmount: l.value ?? zero,
         costAmount: l.value,
-        costBasis: l.value ? "source_provided" : "unknown"
+        costBasis: l.value ? "source_provided" : "unknown",
+        batchId: l.batchNo ? (batchIds.get(`${itemIds.get(l.itemCode)}|${l.batchNo}`) ?? null) : null
       })
     );
   }
@@ -658,7 +737,8 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         taxableAmount: l.taxableAmount,
         taxRate: l.taxRate,
         taxAmount: l.taxAmount,
-        costBasis: "unknown"
+        costBasis: "unknown",
+        batchId: l.batchNo ? (batchIds.get(`${itemIds.get(l.itemCode)}|${l.batchNo}`) ?? null) : null
       });
     }
   }
@@ -921,7 +1001,8 @@ const COLUMNS = {
     taxRate: "numeric",
     taxAmount: "numeric",
     costAmount: "numeric",
-    costBasis: '"CostBasis"'
+    costBasis: '"CostBasis"',
+    batchId: "text"
   },
   BillAllocation: { id: "text", tenantId: "text", settlementVoucherId: "text", billVoucherId: "text", amount: "numeric" },
   ChannelCharge: {

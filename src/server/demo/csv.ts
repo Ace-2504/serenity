@@ -13,7 +13,8 @@ function cell(value: string): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-export function toCsv<T extends Record<string, string>>(columns: readonly (keyof T & string)[], rows: T[]): string {
+/** Missing cells (optional columns a row leaves out) are written empty. */
+export function toCsv(columns: readonly string[], rows: Partial<Record<string, string>>[]): string {
   const lines = [columns.join(",")];
   for (const row of rows) {
     lines.push(columns.map((column) => cell(row[column] ?? "")).join(","));

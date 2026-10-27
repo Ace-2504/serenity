@@ -6,6 +6,7 @@ import { FilterBar } from "@/components/bi/filter-bar";
 import { formatCount, formatInrCompact } from "@/components/bi/format";
 import { StatTile } from "@/components/bi/stat-tile";
 import { lookups } from "@/server/analytics/context";
+import { expiryReport } from "@/server/analytics/expiry";
 import { AGE_BUCKETS, averageInventory, stockAgeing, stockoutDays, stockPositions, turnoverMetrics } from "@/server/analytics/inventory";
 import { resolvePeriod } from "@/server/analytics/period";
 import { dataSpan, profitability } from "@/server/analytics/profitability";
@@ -36,6 +37,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: { 
     stockoutDays(bi.db, bi.tenant.id, period.from, period.to)
   ]);
   const ageing = await stockAgeing(bi.db, bi.tenant.id, period.to, positions);
+  // Batch-tracked trades only: stock by batch and expiry.
+  const nearDays = look.pack.thresholds.nearExpiryDays ?? 90;
+  const expiry = (await bi.db.batch.findFirst({ select: { id: true } })) ? await expiryReport(bi.db, bi.tenant.id, period.to, nearDays) : null;
   const cogs = total?.cogs ?? new D(0);
   const { turnover, dio } = turnoverMetrics(cogs, avg.value, period.from, period.to, avg.unknownItems);
 
@@ -73,6 +77,48 @@ export default async function InventoryPage({ searchParams }: { searchParams: { 
         <StatTile label="Slow-moving stock" value={formatInrCompact(sumValue(slow))} sub={`${formatCount(slow.length)} items unsold ≥ ${slowMovingDays} days`} metricId="slow_moving_value" />
         <StatTile label="Non-moving stock" value={formatInrCompact(sumValue(dead))} sub={`${formatCount(dead.length)} items unsold ≥ ${deadStockDays} days`} metricId="dead_stock_value" />
       </section>
+
+      {expiry && (
+        <>
+          <section aria-label="Expiry" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatTile label="Expired stock" value={formatInrCompact(expiry.expiredValue)} sub={`${formatCount(expiry.byBucket.find((b) => b.bucket === "expired")?.batches ?? 0)} batches past expiry`} metricId="expired_stock_value" />
+            <StatTile label={`Expires within ${nearDays} days`} value={formatInrCompact(expiry.nearExpiryValue)} sub="at cost" metricId="near_expiry_value" />
+            <StatTile label="Likely to expire unsold" value={formatInrCompact(expiry.atRiskValue)} sub="projection at the last 90 days' sales rate" metricId="expiry_at_risk_value" />
+            <StatTile
+              label="Batch data"
+              value={`${formatCount(expiry.batches.length)} batches`}
+              sub={expiry.unbatchedQty > 0 ? `${formatCount(expiry.unbatchedQty)} units have no batch` : "every unit has a batch"}
+              status={expiry.unbatchedQty > 0 || expiry.negativeBatches > 0 ? "partial" : "ok"}
+              note={expiry.negativeBatches > 0 ? `${expiry.negativeBatches} batch(es) issued more than they received; treated as empty` : undefined}
+            />
+          </section>
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <section className="rounded-xl2 border border-mist bg-canvas p-5">
+              <h2 className="font-display text-2xl">When does the stock expire?</h2>
+              <p className="mb-4 mt-1 text-sm text-graphite">Value on hand by expiry date, as on {period.to}. Expired stock cannot be sold.</p>
+              <BarList rows={expiry.byBucket.filter((b) => b.batches > 0).map((b) => ({ label: b.label, value: b.value, sub: `${formatCount(b.batches)} batches` }))} format="inr" valueLabel="stock value" />
+            </section>
+            <section className="rounded-xl2 border border-mist bg-canvas p-5">
+              <h2 className="font-display text-2xl">Expired or likely to expire unsold</h2>
+              <p className="mt-1 text-sm text-graphite">Batches past expiry, and batches expiring within {nearDays} days that are not expected to sell in time. Return them to the distributor while you can.</p>
+              <ItemTable
+                rows={expiry.batches
+                  .filter((b) => b.bucket === "expired" || (b.daysToExpiry !== null && b.daysToExpiry <= nearDays && b.atRiskQty > 0))
+                  .sort((a, b) => (b.bucket === "expired" ? b.value ?? 0 : b.atRiskValue ?? 0) - (a.bucket === "expired" ? a.value ?? 0 : a.atRiskValue ?? 0))
+                  .slice(0, 25)
+                  .map((b) => ({
+                    id: b.batchId,
+                    href: `/bi/products/${b.itemId}`,
+                    name: `${nameOf(b.itemId)} · ${b.batchNo}`,
+                    cells: [b.expiryDate ?? "—", formatCount(b.qty), b.bucket === "expired" ? "expired" : formatCount(Math.round(b.atRiskQty)), b.bucket === "expired" ? (b.value === null ? "unknown" : formatInrCompact(b.value)) : b.atRiskValue === null ? "unknown" : formatInrCompact(b.atRiskValue)]
+                  }))}
+                headers={["Expiry", "On hand", "Likely unsold", "Value at risk"]}
+                empty="No expired or at-risk batches."
+              />
+            </section>
+          </div>
+        </>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <section className="rounded-xl2 border border-mist bg-canvas p-5">
@@ -117,7 +163,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: { 
   );
 }
 
-function ItemTable({ rows, headers, empty }: { rows: { id: string; name: string; cells: string[] }[]; headers: string[]; empty: string }) {
+function ItemTable({ rows, headers, empty }: { rows: { id: string; name: string; cells: string[]; href?: string }[]; headers: string[]; empty: string }) {
   if (rows.length === 0) return <p className="mt-3 text-sm text-graphite">{empty}</p>;
   return (
     <div className="mt-3 overflow-x-auto">
@@ -136,7 +182,7 @@ function ItemTable({ rows, headers, empty }: { rows: { id: string; name: string;
           {rows.map((r) => (
             <tr key={r.id} className="border-t border-mist-light">
               <td className="py-1.5 pr-3">
-                <Link href={`/bi/products/${r.id}` as Route} className="underline-offset-2 hover:underline">
+                <Link href={(r.href ?? `/bi/products/${r.id}`) as Route} className="underline-offset-2 hover:underline">
                   {r.name}
                 </Link>
               </td>

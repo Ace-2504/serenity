@@ -9,6 +9,7 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [trade, setTrade] = useState("stationery");
 
   async function call(key: string, url: string, body: unknown, pending: string) {
     setBusy(key);
@@ -49,6 +50,27 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
             {busy === "full" ? "Loading…" : "Full demo (2 years)"}
           </button>
         </div>
+        <p className="mt-4 text-sm text-graphite">
+          Or a fictional chemist: counter sales billed at MRP, regular patients, clinics on credit, and stock tracked by batch and expiry.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => call("pharmacy-quick", "/api/bi/demo", { size: "quick", pack: "pharmacy" }, "Generating six months of pharmacy demo data…")}
+            className="rounded-full border border-ink px-4 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-60"
+          >
+            {busy === "pharmacy-quick" ? "Loading…" : "Pharmacy demo (6 months)"}
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => call("pharmacy-full", "/api/bi/demo", { size: "full", pack: "pharmacy" }, "Generating two years of pharmacy demo data — it runs in the background…")}
+            className="rounded-full border border-ink px-4 py-2 text-sm font-semibold hover:bg-paper disabled:opacity-60"
+          >
+            {busy === "pharmacy-full" ? "Loading…" : "Pharmacy demo (2 years)"}
+          </button>
+        </div>
       </section>
       <section className="rounded-xl2 border border-mist bg-canvas p-5">
         <h2 className="font-display text-2xl">Set up your business</h2>
@@ -57,7 +79,7 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
           className="mt-4 flex flex-wrap gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void call("create", "/api/bi/businesses", { name }, "Creating your business…");
+            void call("create", "/api/bi/businesses", { name, domainPack: trade }, "Creating your business…");
           }}
         >
           <label htmlFor="business-name" className="sr-only">
@@ -72,6 +94,13 @@ export function Onboarding({ canCreate, stacked = false }: { canCreate: boolean;
             minLength={2}
             className="min-w-0 flex-1 rounded-full border border-mist bg-canvas px-4 py-2 text-sm"
           />
+          <label htmlFor="business-trade" className="sr-only">
+            Trade
+          </label>
+          <select id="business-trade" value={trade} onChange={(event) => setTrade(event.target.value)} className="rounded-full border border-mist bg-canvas px-4 py-2 text-sm">
+            <option value="stationery">Stationery distribution</option>
+            <option value="pharmacy">Retail pharmacy / chemist</option>
+          </select>
           <button type="submit" disabled={busy !== null} className="rounded-full border border-forest px-4 py-2 text-sm font-semibold text-forest hover:bg-forest hover:text-canvas disabled:opacity-60">
             {busy === "create" ? "Creating…" : "Create"}
           </button>

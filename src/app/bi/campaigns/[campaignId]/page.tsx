@@ -1,4 +1,5 @@
 import type { Route } from "next";
+import { getDomainPack } from "@/domain/packs";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CampaignActions, CampaignEditor } from "@/components/bi/campaign-forms";
@@ -111,7 +112,7 @@ export default async function CampaignPage({ params }: { params: { campaignId: s
           <p className="mt-1 text-sm text-terracotta">The message does not mention the offer. Add {"{{offer}}"} where it should appear, or remove the offer; the offer cannot be approved until then.</p>
         )}
         <div className="mt-4">
-          <CampaignEditor id={c.id} subject={c.subject ?? ""} body={c.body ?? ""} offer={offer?.value ?? null} editable={live && CAN_IMPORT.includes(bi.role)} />
+          <CampaignEditor id={c.id} subject={c.subject ?? ""} body={c.body ?? ""} offer={offer?.value ?? null} editable={live && CAN_IMPORT.includes(bi.role)} offersAllowed={getDomainPack(bi.tenant.domainPack).campaignPolicy.generalOffersAllowed} />
         </div>
       </section>
 

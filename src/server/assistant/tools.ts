@@ -3,6 +3,7 @@ import { formatInrCompact as inr, formatPct } from "@/components/bi/format";
 import { chargeTotals, fillRate, payoutLag } from "@/server/analytics/channels";
 import { channelLabel } from "@/server/analytics/context";
 import { concentration, customerRfm, SEGMENT_LABELS } from "@/server/analytics/customers";
+import { expiryReport } from "@/server/analytics/expiry";
 import { stockPositions } from "@/server/analytics/inventory";
 import { resolvePeriod } from "@/server/analytics/period";
 import { dataSpan, pct, profitability, type Period } from "@/server/analytics/profitability";
@@ -141,6 +142,34 @@ const slowStock = defineTool({
       title: `Slow-moving stock (no sale for ${days}+ days)`,
       summary: `${positions.length} products have not sold for ${days} days or more, holding ${inr(total)} at cost.${rows.length ? ` Largest: ${rows.map((r) => `${r.product} (${inr(r.value)})`).join(", ")}.` : ""}`,
       facts: { products: positions.length, value: round(total), threshold_days: days },
+      rows
+    };
+  }
+});
+
+const expiryRisk = defineTool({
+  name: "expiry_risk",
+  description: "Batch-tracked stock (pharmacy): expired stock, stock expiring soon, and batches likely to expire before they sell, largest value first.",
+  args: z.object({ limit: limitArg }),
+  run: async (ctx, args) => {
+    const span = await dataSpan(ctx.db);
+    if (!span) return noData;
+    const { getDomainPack } = await import("@/domain/packs");
+    const days = getDomainPack(ctx.domainPack).thresholds.nearExpiryDays ?? 90;
+    if (!(await ctx.db.batch.findFirst({ select: { id: true } }))) {
+      return { title: "Expiry", summary: "This business's data has no batch numbers or expiry dates, so expiry cannot be reported.", facts: { batches: 0 }, rows: [] };
+    }
+    const report = await expiryReport(ctx.db, ctx.tenantId, span.to, days);
+    const items = new Map((await ctx.db.item.findMany({ select: { id: true, name: true } })).map((i) => [i.id, i.name]));
+    const rows = report.batches
+      .filter((b) => b.bucket === "expired" || (b.daysToExpiry !== null && b.daysToExpiry <= days && b.atRiskQty > 0))
+      .sort((a, b) => (b.bucket === "expired" ? b.value ?? 0 : b.atRiskValue ?? 0) - (a.bucket === "expired" ? a.value ?? 0 : a.atRiskValue ?? 0))
+      .slice(0, args.limit)
+      .map((b) => ({ product: items.get(b.itemId) ?? "—", batch: b.batchNo, expiry: b.expiryDate, units: round(b.qty, 0), status: b.bucket === "expired" ? "expired" : "likely unsold", value_at_risk: round((b.bucket === "expired" ? b.value : b.atRiskValue) ?? 0) }));
+    return {
+      title: `Expiry (as of ${span.to})`,
+      summary: `Expired stock on hand: ${inr(report.expiredValue)}. Expiring within ${days} days: ${inr(report.nearExpiryValue)}, of which about ${inr(report.atRiskValue)} is not expected to sell in time at the recent sales rate.${rows.length ? ` Largest: ${rows.slice(0, 3).map((r) => `${r.product} batch ${r.batch} (${inr(r.value_at_risk)})`).join(", ")}.` : ""}`,
+      facts: { expired_value: round(report.expiredValue), near_expiry_value: round(report.nearExpiryValue), at_risk_value: round(report.atRiskValue), near_expiry_days: days },
       rows
     };
   }
@@ -317,7 +346,7 @@ const metricDefinition = defineTool({
   }
 });
 
-export const TOOLS: Tool<any>[] = [profitOverview, topProducts, productDetail, slowStock, customers, customerDetail, receivables, cashCycle, openFindings, channels, metricDefinition];
+export const TOOLS: Tool<any>[] = [profitOverview, topProducts, productDetail, slowStock, expiryRisk, customers, customerDetail, receivables, cashCycle, openFindings, channels, metricDefinition];
 
 export function toolByName(name: string): Tool | undefined {
   return TOOLS.find((t) => t.name === name);

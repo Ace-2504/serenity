@@ -47,5 +47,9 @@ export const RULE_CONFIG = {
   channelLossMinInvoices: 5,
   channelLossMaxFindings: 10,
   fillRateTarget: 0.95,
-  fillRateMinUnits: 100
+  fillRateMinUnits: 100,
+  expiredMinValue: 1_000,
+  nearExpiryMinValue: 2_000,
+  nearExpiryMaxFindings: 10,
+  nearExpiryCheckDays: 45
 } as const;

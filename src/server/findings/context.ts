@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { getDomainPack } from "@/domain/packs";
 import { fillRate } from "@/server/analytics/channels";
 import { concentration, customerRfm } from "@/server/analytics/customers";
+import { expiryReport } from "@/server/analytics/expiry";
 import { stockoutDays, stockPositions } from "@/server/analytics/inventory";
 import { profitability, type Period } from "@/server/analytics/profitability";
 import { averageOpen, creditVolume, daysMetric, openBills } from "@/server/analytics/working-capital";
@@ -23,7 +24,7 @@ export async function buildContext(db: TenantDb, tenantId: string, asOf: string)
   const halfLastYear: Period = { from: shift(half.from, -365), to: shift(asOf, -365) };
 
   const [items, groups, parties, positions, stockoutsYear, groupNow, groupThen, itemYear, channelItemYear, [businessYear], rfm, conc, bills] = await Promise.all([
-    db.item.findMany({ select: { id: true, sourceKey: true, name: true, itemGroupId: true } }),
+    db.item.findMany({ select: { id: true, sourceKey: true, name: true, itemGroupId: true, attributes: true } }),
     db.itemGroup.findMany({ select: { id: true, name: true } }),
     db.party.findMany({ select: { id: true, name: true, segmentTag: true } }),
     stockPositions(db, tenantId, asOf),
@@ -69,6 +70,8 @@ export async function buildContext(db: TenantDb, tenantId: string, asOf: string)
     receivables: bills,
     dso: { now: daysMetric(arNow.value, salesNow, days(half), "credit sales"), then: daysMetric(arThen.value, salesThen, days(halfLastYear), "credit sales"), arNow: bills.reduce((s, b) => s + b.pending, 0) },
     paymentDelays: await paymentDelays(db, tenantId, half, halfLastYear),
+    // Only batch-tracked businesses (pharmacy) have expiry dates to look at.
+    expiry: (await db.batch.findFirst({ select: { id: true } })) ? await expiryReport(db, tenantId, asOf, pack.thresholds.nearExpiryDays ?? 90) : null,
     purchaseCost: await purchaseCostByGroup(db, tenantId, current, lastYear),
     pastBuyers: await pastBuyers(
       db,

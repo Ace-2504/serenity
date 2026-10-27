@@ -28,6 +28,15 @@ export const METRICS: MetricDef[] = [
   { id: "stock_age_buckets", label: "Stock ageing", unit: "INR", formula: "Units on hand matched to the most recent receipts (first in, first out) to find their age; valued at weighted-average cost." },
   { id: "slow_moving_value", label: "Slow-moving stock", unit: "INR", formula: "Value of items with no sale for at least the slow-moving threshold of your trade (stationery: 90 days)." },
   { id: "dead_stock_value", label: "Non-moving stock", unit: "INR", formula: "Value of items with no sale for at least the non-moving threshold (stationery: 180 days), or never sold." },
+  { id: "expired_stock_value", label: "Expired stock", unit: "INR", formula: "Units of batches past their expiry date × weighted-average cost.", notes: "Batch-tracked trades only. Expired stock cannot be sold." },
+  { id: "near_expiry_value", label: "Near-expiry stock", unit: "INR", formula: "Value of batches expiring within your trade's near-expiry window (pharmacy: 90 days)." },
+  {
+    id: "expiry_at_risk_value",
+    label: "Likely to expire unsold",
+    unit: "INR",
+    formula: "Of the near-expiry stock: units not expected to sell before expiry at the last 90 days' sales rate (earliest-expiring batches sell first) × weighted-average cost.",
+    notes: "A projection, not a fact: demand can rise or fall."
+  },
   { id: "ar_total", label: "Trade receivables", unit: "INR", formula: "Bills to customers (incl. GST) − credit notes against them − receipts allocated to them, as on the date." },
   { id: "ap_total", label: "Trade payables", unit: "INR", formula: "Supplier bills (incl. GST) − debit notes − payments allocated to them, as on the date." },
   { id: "dso", label: "Days sales outstanding", unit: "days", formula: "Average receivables ÷ credit sales incl. GST × days in the period.", notes: "A credit sale is a sales invoice not fully settled on its own date." },

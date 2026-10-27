@@ -2,6 +2,7 @@ import { toCsv } from "@/server/demo/csv";
 import {
   CHANNEL_CHARGE_COLUMNS,
   CONTROL_TOTAL_COLUMNS,
+  BATCH_COLUMNS,
   CUSTOMER_ORDER_COLUMNS,
   ITEM_COLUMNS,
   OUTSTANDING_COLUMNS,
@@ -71,14 +72,36 @@ export const TEMPLATE_DOCS: FileDoc[] = [
       col("qty", true, "Quantity in the item's unit; greater than zero (returns are positive)."),
       col("rate", true, "Price per unit before discount, excluding GST."),
       col("discount_amount", false, "Discount on the line in rupees."),
-      col("taxable_amount", true, "qty x rate - discount, checked to the paisa."),
+      col("taxable_amount", true, "qty x rate - discount, checked to the paisa. Leave blank with tax_amount when you give amount_incl_tax."),
       col("gst_rate", true, "GST %."),
-      col("tax_amount", true, "GST on the line; differences up to Rs 1 from the computed amount are flagged, more is rejected."),
+      col("tax_amount", true, "GST on the line; differences up to Rs 1 from the computed amount are flagged, more is rejected. Leave blank with taxable_amount when you give amount_incl_tax."),
       col(
         "adjustment_incl_tax",
         false,
         "Bill-level amount that is not an item line: round-off, freight, packing (including any GST on it). Same value on every line of the voucher; added to the bill total only, not to sales."
+      ),
+      col("batch_no", false, "Batch-tracked trades (pharmacy): the batch number printed on the pack."),
+      col("expiry_date", false, "Expiry of that batch, YYYY-MM-DD (use the last day of the printed month). Sales after expiry are flagged."),
+      col("mrp", false, "Maximum retail price per unit, including GST. Sales above MRP are flagged."),
+      col(
+        "amount_incl_tax",
+        false,
+        "Line total including GST, after discount, for sources that only give tax-inclusive amounts (retail at MRP). Leave taxable_amount and tax_amount blank: GST is backed out at gst_rate, and rate may then be the printed (inclusive) price."
       )
+    ]
+  },
+  {
+    file: TEMPLATE_FILES.batches,
+    required: false,
+    purpose: "Opening stock by batch, for batch-tracked items (pharmacy). The batches of an item must add up to its opening_qty in items.csv.",
+    columns: [
+      col("item_code", true, "Must exist in items.csv or an earlier import."),
+      col("batch_no", true, "As printed on the pack."),
+      col("expiry_date", false, "YYYY-MM-DD (last day of the printed month)."),
+      col("mfg_date", false, "YYYY-MM-DD."),
+      col("mrp", false, "Per unit, including GST."),
+      col("opening_qty", true, "Units of this batch in opening stock."),
+      col("opening_value", false, "Cost of those units, excluding GST. If blank, the item's opening value is split by quantity.")
     ]
   },
   {
@@ -209,5 +232,7 @@ export const TEMPLATE_EXAMPLES: Record<string, string> = {
   [TEMPLATE_FILES.stockSummary]: toCsv(STOCK_SUMMARY_COLUMNS, []),
   [TEMPLATE_FILES.outstanding]: toCsv(OUTSTANDING_COLUMNS, []),
   [TEMPLATE_FILES.channelCharges]: toCsv(CHANNEL_CHARGE_COLUMNS, []),
-  [TEMPLATE_FILES.customerOrders]: toCsv(CUSTOMER_ORDER_COLUMNS, [])
+  [TEMPLATE_FILES.customerOrders]: toCsv(CUSTOMER_ORDER_COLUMNS, []),
+  // Header only: the example business does not track batches.
+  [TEMPLATE_FILES.batches]: toCsv(BATCH_COLUMNS, [])
 };

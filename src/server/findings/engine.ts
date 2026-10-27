@@ -1,6 +1,7 @@
 import { Prisma, type Finding, type FindingStatus } from "@prisma/client";
 import { fillRate } from "@/server/analytics/channels";
 import { concentration } from "@/server/analytics/customers";
+import { expiryReport } from "@/server/analytics/expiry";
 import { stockoutDays, stockPositions } from "@/server/analytics/inventory";
 import { dataSpan, pct, profitability, type Period } from "@/server/analytics/profitability";
 import { averageOpen, creditVolume, daysMetric } from "@/server/analytics/working-capital";
@@ -205,6 +206,16 @@ export async function measure(db: TenantDb, tenantId: string, f: Finding, plan: 
         SELECT SUM(l."taxableAmount" - l."costAmount")::float AS gp FROM "VoucherLine" l
         WHERE l."tenantId" = ${tenantId} AND l."costAmount" IS NOT NULL AND l."voucherId" IN (${Prisma.join(orders.map((o) => o.id))})`;
       return { value: orders.length, realised: mine?.gp ?? null, note: "Realised = gross profit on this customer's orders in the period." };
+    }
+    case "expired_stock_value": {
+      const report = await expiryReport(db, tenantId, window.to);
+      return { value: report.expiredValue, realised: Math.max(0, plan.baseline - report.expiredValue), note: "Realised = fall in expired stock at cost (returned, credited or written off)." };
+    }
+    case "batch_stock_value": {
+      const subjects = new Set(plan.subjects ?? []);
+      const report = await expiryReport(db, tenantId, window.to);
+      const value = report.batches.filter((b) => subjects.has(b.batchId)).reduce((s, b) => s + (b.value ?? 0), 0);
+      return { value, realised: null, note: "Includes these batches whether or not they have expired; selling or returning them is what lowers it." };
     }
     case "item_stockout_days":
       return { value: (await stockoutDays(db, tenantId, window.from, window.to)).get(f.entityId!) ?? 0, realised: null };

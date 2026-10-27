@@ -12,6 +12,7 @@ import {
   type PartyRow,
   type SettlementRow,
   type StockSummaryRow,
+  type BatchRow,
   type VoucherRow
 } from "@/server/ingest/template";
 
@@ -27,7 +28,7 @@ import {
 
 const DAY_MS = 86_400_000;
 
-export const GENERATOR_VERSION = "1.1.0";
+export const GENERATOR_VERSION = "1.2.0";
 
 export type DemoDataset = {
   meta: {
@@ -48,6 +49,8 @@ export type DemoDataset = {
   outstanding: OutstandingRow[];
   channelCharges: ChannelChargeRow[];
   customerOrders: CustomerOrderRow[];
+  /** Opening stock by batch (batch-tracked profiles only; empty otherwise). */
+  batches: BatchRow[];
   controlTotals: ControlTotalRow[];
   groundTruth: GroundTruth;
 };
@@ -61,7 +64,11 @@ export type GroundTruth = {
     slowPayers: { partyCode: string; from: string; extraDelayDays: number }[];
     stockoutItems: { itemCode: string }[];
     missingOpeningValue: { itemCode: string }[];
+    shortDated: { itemCode: string; batchNo: string; expiryDate: string }[];
+    expiredOpening: { itemCode: string; batchNo: string; expiryDate: string }[];
   };
+  /** Batch-tracked profiles: every batch still holding stock at the end, with its expiry. */
+  batchesOnHand: { itemCode: string; batchNo: string; expiryDate: string; qty: number }[];
   /** Per financial year: what an importer + metrics layer must reproduce. Paise. */
   byFinancialYear: Record<
     string,
@@ -104,6 +111,9 @@ type Supplier = { idx: number; code: string; name: string; leadDays: number; cre
 
 type Intent = { day: number; customerIdx: number; lines: { itemIdx: number; qty: number }[] };
 
+/** A batch of one item: what is printed on the pack. Quantities change as stock moves. */
+type BatchLot = { no: string; itemIdx: number; expiryDay: number; mfgDay: number; mrp: number; qty: number };
+
 type SalesLine = {
   lineNo: number;
   itemIdx: number;
@@ -114,6 +124,9 @@ type SalesLine = {
   gstPct: number;
   tax: number;
   cost: number | null;
+  batch?: BatchLot;
+  /** Tax-inclusive line total when the line was billed at MRP. */
+  inclusive?: number;
 };
 
 type SalesInvoice = {
@@ -135,7 +148,7 @@ type SalesInvoice = {
   hadReturn: boolean;
 };
 
-type PurchaseLine = { lineNo: number; itemIdx: number; qty: number; rate: number; discount: number; taxable: number; gstPct: number; tax: number };
+type PurchaseLine = { lineNo: number; itemIdx: number; qty: number; rate: number; discount: number; taxable: number; gstPct: number; tax: number; batch?: BatchLot };
 
 type PurchaseInvoice = { no: string; day: number; supplierIdx: number; lines: PurchaseLine[]; total: number; returned: number; paid: number; payDay: number };
 
@@ -194,6 +207,10 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
   const slowMoverSet = new Set(slowMovers.map((i) => i.idx));
   const stockoutSet = new Set(stockoutItems.map((i) => i.idx));
   const missingOpeningSet = new Set(missingOpening.map((i) => i.idx));
+  const batchCfg = profile.batches;
+  const shortDatedItems = batchCfg && plant.shortDated ? pickItems(plant.shortDated.groups, plant.shortDated.count, plantRng.fork("short-dated"), false) : [];
+  const expiredOpeningItems = batchCfg && plant.expiredOpening ? pickItems(plant.expiredOpening.groups, plant.expiredOpening.count, plantRng.fork("expired-opening"), false) : [];
+  const expiredOpeningSet = new Set(expiredOpeningItems.map((i) => i.idx));
 
   // ── Pass 1: demand intents (independent of stock) ───────────────────────
   const intents: Intent[] = [];
@@ -317,9 +334,67 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
   const stockValue: (number | null)[] = new Array<number | null>(items.length).fill(0);
   const onOrder = new Array<number>(items.length).fill(0);
 
+  // ── Batches (batch-tracked profiles only) ────────────────────────────────
+  // Each item's lots, earliest expiry first. Expiry is the last day of the printed month and the
+  // pack may be sold up to and including that day.
+  const lots: BatchLot[][] = items.map(() => []);
+  const lotSeq = new Array<number>(items.length).fill(0);
+  const batchRng = root.fork("batches");
+  const shelfLife = new Map(profile.groups.map((g) => [g.name, g.shelfLifeDays ?? ([730, 1095] as [number, number])]));
+  const monthEnd = (day: number) => {
+    const d = new Date(startMs + day * DAY_MS);
+    return Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0) - startMs) / DAY_MS);
+  };
+  const mrpFor = (item: Item, day: number) => {
+    const step = batchCfg!.mrpRoundPaise;
+    return Math.ceil((retailPrice(item, day) * (100 + item.gstPct)) / 100 / step) * step;
+  };
+  const newLot = (item: Item, day: number, qty: number, lifeLeftDays?: number): BatchLot => {
+    const [minLife, maxLife] = shelfLife.get(item.group)!;
+    const mfgDay = day - batchRng.int(batchCfg!.ageAtArrivalDays[0], batchCfg!.ageAtArrivalDays[1]);
+    const expiryDay = monthEnd(lifeLeftDays !== undefined ? day + lifeLeftDays : mfgDay + batchRng.int(minLife, maxLife));
+    lotSeq[item.idx] += 1;
+    const lot: BatchLot = { no: `${item.code.replace(/-/g, "")}-${String(lotSeq[item.idx]).padStart(3, "0")}`, itemIdx: item.idx, expiryDay, mfgDay, mrp: mrpFor(item, day), qty };
+    lots[item.idx].push(lot);
+    lots[item.idx].sort((a, b) => a.expiryDay - b.expiryDay || a.no.localeCompare(b.no));
+    return lot;
+  };
+  /** Units that may still be sold today: unexpired lots only. */
+  const sellable = (itemIdx: number, day: number) => (batchCfg ? lots[itemIdx].reduce((s, l) => s + (l.expiryDay >= day ? l.qty : 0), 0) : stockQty[itemIdx]);
+  /** Earliest-expiry-first issue across unexpired lots. */
+  const takeFefo = (itemIdx: number, qty: number, day: number) => {
+    const parts: { qty: number; lot: BatchLot }[] = [];
+    let left = qty;
+    for (const lot of lots[itemIdx]) {
+      if (left === 0) break;
+      if (lot.expiryDay < day || lot.qty === 0) continue;
+      const take = Math.min(lot.qty, left);
+      lot.qty -= take;
+      left -= take;
+      parts.push({ qty: take, lot });
+    }
+    return parts;
+  };
+  const batchRows: BatchRow[] = [];
+  const shortDatedLots: BatchLot[] = [];
+  const expiredOpeningLots: BatchLot[] = [];
+
   const itemRows: ItemRow[] = [];
   for (const item of items) {
-    const openingQty = roundUp(avgDailyDemand(item.idx, 0, 56) * profile.inventory.openingCoverDays, profile.inventory.caseSize) || profile.inventory.caseSize * 2;
+    const baseOpening = roundUp(avgDailyDemand(item.idx, 0, 56) * profile.inventory.openingCoverDays, profile.inventory.caseSize) || profile.inventory.caseSize * 2;
+    const openingQty = expiredOpeningSet.has(item.idx) ? roundUp(baseOpening * plant.expiredOpening!.coverMultiple, profile.inventory.caseSize) : baseOpening;
+    if (batchCfg) {
+      // Opening stock: an older and a newer batch, or one oversized old batch for the planted items.
+      const caseSize = profile.inventory.caseSize;
+      const parts: { qty: number; lifeLeft?: number }[] = expiredOpeningSet.has(item.idx)
+        ? [{ qty: openingQty, lifeLeft: batchRng.int(plant.expiredOpening!.lifeLeftDays[0], plant.expiredOpening!.lifeLeftDays[1]) }]
+        : [{ qty: Math.floor((openingQty * 0.4) / caseSize) * caseSize, lifeLeft: batchRng.int(150, 420) }, { qty: openingQty - Math.floor((openingQty * 0.4) / caseSize) * caseSize }];
+      for (const part of parts.filter((p) => p.qty > 0)) {
+        const lot = newLot(item, 0, part.qty, part.lifeLeft);
+        if (expiredOpeningSet.has(item.idx)) expiredOpeningLots.push(lot);
+        batchRows.push({ item_code: item.code, batch_no: lot.no, expiry_date: isoOf(lot.expiryDay), mfg_date: isoOf(lot.mfgDay), mrp: formatPaise(lot.mrp), opening_qty: String(part.qty), opening_value: "" });
+      }
+    }
     const openingValue = missingOpeningSet.has(item.idx) ? null : openingQty * costFor(item, 0);
     stockQty[item.idx] = openingQty;
     stockValue[item.idx] = openingValue;
@@ -360,6 +435,15 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
   for (const item of slowMovers) {
     addArrival(bulkBuyDay, item.supplierIdx, item.idx, roundUp(bulkRng.int(plant.slowMovers.bulkQty[0], plant.slowMovers.bulkQty[1]), profile.inventory.caseSize));
   }
+  // Short-dated bulk buys (batch profiles): the lot arrives with little shelf life left.
+  const shortDatedLife = new Map<string, number>();
+  if (plant.shortDated) {
+    const day = dayOf(plant.shortDated.buyOn);
+    for (const item of shortDatedItems) {
+      addArrival(day, item.supplierIdx, item.idx, roundUp(bulkRng.int(plant.shortDated.qty[0], plant.shortDated.qty[1]), profile.inventory.caseSize));
+      shortDatedLife.set(`${day}|${item.idx}`, bulkRng.int(plant.shortDated.lifeLeftDays[0], plant.shortDated.lifeLeftDays[1]));
+    }
+  }
 
   const salesReturnsDue = new Map<number, { invoice: SalesInvoice; line: SalesLine; qty: number }[]>();
   const purchaseReturnsDue = new Map<number, { invoice: PurchaseInvoice; line: PurchaseLine; qty: number }[]>();
@@ -399,7 +483,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     channel: string,
     dueDay: number | null,
     original: string,
-    line: { lineNo: number; itemIdx: number; qty: number; rate: number; discount: number; taxable: number; gstPct: number; tax: number }
+    line: { lineNo: number; itemIdx: number; qty: number; rate: number; discount: number; taxable: number; gstPct: number; tax: number; batch?: BatchLot; inclusive?: number }
   ): VoucherRow => ({
     voucher_type: type,
     voucher_no: no,
@@ -417,7 +501,10 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     taxable_amount: formatPaise(line.taxable),
     gst_rate: line.gstPct.toFixed(2),
     tax_amount: formatPaise(line.tax),
-    adjustment_incl_tax: ""
+    adjustment_incl_tax: "",
+    ...(line.batch ? { batch_no: line.batch.no, expiry_date: isoOf(line.batch.expiryDay), mrp: formatPaise(line.batch.mrp) } : {}),
+    // Billed at MRP: only the tax-inclusive total is stated; the importer backs GST out.
+    ...(line.inclusive !== undefined ? { taxable_amount: "", tax_amount: "", amount_incl_tax: formatPaise(line.inclusive) } : {})
   });
 
   const lostDemand: Record<string, number> = {};
@@ -443,6 +530,11 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
           const discount = Math.round((gross * supplier.tradeDiscountPct) / 100);
           const taxable = gross - discount;
           const line: PurchaseLine = { lineNo: lines.length + 1, itemIdx, qty, rate, discount, taxable, gstPct: item.gstPct, tax: Math.round((taxable * item.gstPct) / 100) };
+          if (batchCfg) {
+            const life = shortDatedLife.get(`${day}|${itemIdx}`);
+            line.batch = newLot(item, day, qty, life);
+            if (life !== undefined) shortDatedLots.push(line.batch);
+          }
           lines.push(line);
           stockQty[itemIdx] += qty;
           const value = stockValue[itemIdx];
@@ -472,7 +564,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
       const poNo = channel.customerPurchaseOrders ? nextNo(`PO-${seg.channel.toUpperCase()}`, day) : null;
       for (const want of intent.lines) {
         totalDemand[seg.channel] = (totalDemand[seg.channel] ?? 0) + want.qty;
-        const qty = Math.min(want.qty, stockQty[want.itemIdx]);
+        const qty = Math.min(want.qty, sellable(want.itemIdx, day));
         lostDemand[seg.channel] = (lostDemand[seg.channel] ?? 0) + (want.qty - qty);
         if (poNo) {
           // The platform's PO asks for what it wants; the shortfall shows up as fill rate below 100%.
@@ -505,10 +597,23 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
         const item = items[want.itemIdx];
         const rate = priceFor(item, day, seg.priceTier);
         const extra = item.group === erosion.group && seg.id === erosion.discountSegment && day >= erosionDiscountFrom ? erosion.extraDiscountPct : 0;
-        const discount = Math.round((qty * rate * (customer.discountPct + extra)) / 100);
-        const taxable = qty * rate - discount;
-        const cost = issue(want.itemIdx, qty);
-        lines.push({ lineNo: lines.length + 1, itemIdx: want.itemIdx, qty, rate, discount, taxable, gstPct: item.gstPct, tax: Math.round((taxable * item.gstPct) / 100), cost });
+        // Batch profiles split the line by batch, earliest expiry first.
+        for (const part of batchCfg ? takeFefo(want.itemIdx, qty, day) : [{ qty, lot: undefined }]) {
+          const pct = customer.discountPct + extra;
+          if (part.lot && profile.retailPricesIncludeTax && seg.priceTier === "retail") {
+            // Billed at MRP (tax-inclusive), with the customer's discount off MRP.
+            const inclusive = Math.round((part.qty * part.lot.mrp * (100 - pct)) / 100);
+            const taxable = backOutTax(inclusive, item.gstPct);
+            const gross = backOutTax(part.qty * part.lot.mrp, item.gstPct);
+            const cost = issue(want.itemIdx, part.qty);
+            lines.push({ lineNo: lines.length + 1, itemIdx: want.itemIdx, qty: part.qty, rate: part.lot.mrp, discount: gross - taxable, taxable, gstPct: item.gstPct, tax: inclusive - taxable, cost, batch: part.lot, inclusive });
+            continue;
+          }
+          const discount = Math.round((part.qty * rate * pct) / 100);
+          const taxable = part.qty * rate - discount;
+          const cost = issue(want.itemIdx, part.qty);
+          lines.push({ lineNo: lines.length + 1, itemIdx: want.itemIdx, qty: part.qty, rate, discount, taxable, gstPct: item.gstPct, tax: Math.round((taxable * item.gstPct) / 100), cost, ...(part.lot ? { batch: part.lot } : {}) });
+        }
       }
       if (lines.length === 0) {
         continue;
@@ -595,9 +700,12 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     for (const ret of salesReturnsDue.get(day) ?? []) {
       const { invoice, line, qty } = ret;
       const customer = customers[invoice.customerIdx];
-      const taxable = Math.round((line.taxable * qty) / line.qty);
       const cost = Math.round((line.cost! * qty) / line.qty);
-      const tax = Math.round((taxable * line.gstPct) / 100);
+      // A line billed at MRP is credited the same way (tax-inclusive), back into its batch.
+      const inclusive = line.inclusive !== undefined ? Math.round((line.inclusive * qty) / line.qty) : undefined;
+      const taxable = inclusive !== undefined ? backOutTax(inclusive, line.gstPct) : Math.round((line.taxable * qty) / line.qty);
+      const tax = inclusive !== undefined ? inclusive - taxable : Math.round((taxable * line.gstPct) / 100);
+      const discount = inclusive !== undefined ? backOutTax(qty * line.rate, line.gstPct) - taxable : qty * line.rate - taxable;
       const no = nextNo("CN", day);
       vouchers.push(
         voucherRow("sales_return", no, day, customer.code, invoice.channel, null, invoice.no, {
@@ -605,12 +713,15 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
           itemIdx: line.itemIdx,
           qty,
           rate: line.rate,
-          discount: qty * line.rate - taxable,
+          discount,
           taxable,
           gstPct: line.gstPct,
-          tax
+          tax,
+          ...(line.batch ? { batch: line.batch } : {}),
+          ...(inclusive !== undefined ? { inclusive } : {})
         })
       );
+      if (line.batch) line.batch.qty += qty;
       stockQty[line.itemIdx] += qty;
       const value = stockValue[line.itemIdx];
       stockValue[line.itemIdx] = value === null ? null : value + cost;
@@ -627,9 +738,10 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
       const { invoice, line, qty } = ret;
       const taxable = Math.round((line.taxable * qty) / line.qty);
       const value = stockValue[line.itemIdx];
-      if (stockQty[line.itemIdx] < qty || invoice.payDay <= day || (value !== null && value < taxable)) {
+      if (stockQty[line.itemIdx] < qty || invoice.payDay <= day || (value !== null && value < taxable) || (line.batch && line.batch.qty < qty)) {
         continue;
       }
+      if (line.batch) line.batch.qty -= qty;
       const tax = Math.round((taxable * line.gstPct) / 100);
       const no = nextNo("DN", day);
       vouchers.push(
@@ -641,7 +753,8 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
           discount: qty * line.rate - taxable,
           taxable,
           gstPct: line.gstPct,
-          tax
+          tax,
+          ...(line.batch ? { batch: line.batch } : {})
         })
       );
       stockQty[line.itemIdx] -= qty;
@@ -746,8 +859,10 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
         const safety = isStockout ? plant.stockoutItems.reorderSafety : profile.inventory.reorderSafety;
         const cover = isStockout ? plant.stockoutItems.coverDays : profile.inventory.coverDays;
         const reorderPoint = avg * (supplier.leadDays + 7) * safety;
-        if (stockQty[item.idx] + onOrder[item.idx] > reorderPoint) continue;
-        const qty = roundUp(avg * (supplier.leadDays + 7 + cover) - stockQty[item.idx] - onOrder[item.idx], profile.inventory.caseSize);
+        // Expired lots are still on hand but cannot be sold, so they do not count as cover.
+        const usable = sellable(item.idx, day);
+        if (usable + onOrder[item.idx] > reorderPoint) continue;
+        const qty = roundUp(avg * (supplier.leadDays + 7 + cover) - usable - onOrder[item.idx], profile.inventory.caseSize);
         if (qty <= 0) continue;
         const arrival = day + supplier.leadDays + simRng.int(0, 2);
         if (arrival >= days) continue;
@@ -850,6 +965,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     outstanding,
     channelCharges,
     customerOrders,
+    batches: batchRows,
     controlTotals: buildControlTotals(vouchers, settlements, channelCharges, profile.start, profile.end),
     groundTruth
   };
@@ -891,7 +1007,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     for (const row of vouchers) {
       if (row.voucher_type !== "sales_return") continue;
       const bucket = fy(dayOf(row.date));
-      const taxable = parseAmount(row.taxable_amount);
+      const taxable = rowTaxable(row);
       bucket.netSales -= taxable;
       bucket.salesReturns += taxable;
       bucket.netSalesKnownCost -= taxable;
@@ -917,8 +1033,15 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
         marginErosion: { group: erosion.group, costIncreasePct: erosion.costIncreasePct, from: erosion.from, extraDiscountPct: erosion.extraDiscountPct, discountFrom: erosion.discountFrom },
         slowPayers: [...slowPayers.entries()].map(([idx, extra]) => ({ partyCode: customers[idx].code, from: plant.slowPayers.from, extraDelayDays: extra })),
         stockoutItems: stockoutItems.map((i) => ({ itemCode: i.code })),
-        missingOpeningValue: missingOpening.map((i) => ({ itemCode: i.code }))
+        missingOpeningValue: missingOpening.map((i) => ({ itemCode: i.code })),
+        shortDated: shortDatedLots.map((l) => ({ itemCode: items[l.itemIdx].code, batchNo: l.no, expiryDate: isoOf(l.expiryDay) })),
+        expiredOpening: expiredOpeningLots.map((l) => ({ itemCode: items[l.itemIdx].code, batchNo: l.no, expiryDate: isoOf(l.expiryDay) }))
       },
+      batchesOnHand: lots
+        .flat()
+        .filter((l) => l.qty > 0)
+        .map((l) => ({ itemCode: items[l.itemIdx].code, batchNo: l.no, expiryDate: isoOf(l.expiryDay), qty: l.qty }))
+        .sort((a, b) => a.itemCode.localeCompare(b.itemCode) || a.batchNo.localeCompare(b.batchNo)),
       byFinancialYear,
       contributionByChannelItem: [...contribution.values()]
         .map((e) => ({ ...e, contribution: e.netSales - e.cogs - e.charges }))
@@ -971,17 +1094,37 @@ function buildControlTotals(
 ): ControlTotalRow[] {
   const sum = (rows: { [k: string]: string }[], field: string) => rows.reduce((s, r) => s + parseAmount(r[field]), 0);
   const ofType = (type: string) => vouchers.filter((v) => v.voucher_type === type);
+  const lines = (type: string, f: (r: VoucherRow) => number) => ofType(type).reduce((s, r) => s + f(r), 0);
   const totals: [string, number][] = [
-    ["sales_taxable", sum(ofType("sales_invoice"), "taxable_amount")],
-    ["sales_tax", sum(ofType("sales_invoice"), "tax_amount")],
-    ["sales_return_taxable", sum(ofType("sales_return"), "taxable_amount")],
-    ["purchase_taxable", sum(ofType("purchase_invoice"), "taxable_amount")],
-    ["purchase_return_taxable", sum(ofType("purchase_return"), "taxable_amount")],
+    ["sales_taxable", lines("sales_invoice", rowTaxable)],
+    ["sales_tax", lines("sales_invoice", rowTax)],
+    ["sales_return_taxable", lines("sales_return", rowTaxable)],
+    ["purchase_taxable", lines("purchase_invoice", rowTaxable)],
+    ["purchase_return_taxable", lines("purchase_return", rowTaxable)],
     ["receipts", sum(settlements.filter((s) => s.voucher_type === "receipt"), "amount")],
     ["payments", sum(settlements.filter((s) => s.voucher_type === "payment"), "amount")],
     ["channel_charges", sum(charges, "amount")]
   ];
   return totals.map(([metric, value]) => ({ metric, period_from: periodFrom, period_to: periodTo, value: formatPaise(value) }));
+}
+
+/**
+ * Taxable value inside a tax-inclusive amount, in paise, rounded half up exactly as the importer
+ * does with decimals: round(inclusive x 100 / (100 + GST%)).
+ */
+export function backOutTax(inclusivePaise: number, gstPct: number): number {
+  const g = Math.round(gstPct * 100);
+  const num = inclusivePaise * 10_000;
+  const den = 10_000 + g;
+  return Math.floor((2 * num + den) / (2 * den));
+}
+
+const isInclusive = (r: VoucherRow) => r.taxable_amount === "" && r.tax_amount === "" && !!r.amount_incl_tax;
+function rowTaxable(r: VoucherRow): number {
+  return isInclusive(r) ? backOutTax(parseAmount(r.amount_incl_tax!), Number(r.gst_rate)) : parseAmount(r.taxable_amount);
+}
+function rowTax(r: VoucherRow): number {
+  return isInclusive(r) ? parseAmount(r.amount_incl_tax!) - rowTaxable(r) : parseAmount(r.tax_amount);
 }
 
 function parseAmount(value: string): number {
@@ -1048,7 +1191,7 @@ function buildItems(profile: DemoProfile, rng: Rng, supplierCount: number): Item
         markup: groupRng.float(group.markup[0], group.markup[1]),
         popularity: 1 / (groupRng.int(1, group.count) ** 0.9),
         supplierIdx: groupRng.pick(groupSuppliers),
-        attributes: { brand, segment: group.segmentTag }
+        attributes: group.attributes ? { ...group.attributes } : { brand, segment: group.segmentTag }
       });
     }
   });

@@ -75,6 +75,10 @@ export type GroupSpec = {
   nouns: string[];
   variants: string[];
   segmentTag: string;
+  /** Item attributes for the domain pack (e.g. pharmacy productClass and schedule). Default: brand and segment. */
+  attributes?: Record<string, string>;
+  /** Batch-tracked profiles: shelf life from manufacture, in days. */
+  shelfLifeDays?: [number, number];
 };
 
 export type DemoProfile = {
@@ -95,6 +99,18 @@ export type DemoProfile = {
   segments: SegmentSpec[];
   suppliers: { count: number; leadDays: [number, number]; creditDays: number[]; tradeDiscountPct: [number, number] };
   inventory: { coverDays: number; reorderSafety: number; openingCoverDays: number; caseSize: number };
+  /**
+   * Batch tracking (pharmacy): every purchase is a new batch with an expiry date, sales take the
+   * earliest-expiring unexpired batch first (FEFO) and expired stock can no longer be sold.
+   */
+  batches?: {
+    /** Days between manufacture and arrival at the shop. */
+    ageAtArrivalDays: [number, number];
+    /** MRP = retail price incl. GST, rounded up to a multiple of this many paise. */
+    mrpRoundPaise: number;
+  };
+  /** Retail lines quote tax-inclusive amounts at MRP (amount_incl_tax), as chemists' billing does. */
+  retailPricesIncludeTax?: boolean;
   plant: {
     slowMovers: { groups: string[]; count: number; bulkBuyOn: string; stopSellingFrom: string; bulkQty: [number, number] };
     lapsingKeyCustomers: { segment: string; count: number; stopFrom: string };
@@ -103,5 +119,9 @@ export type DemoProfile = {
     slowPayers: { segment: string; count: number; from: string; extraDelayDays: [number, number] };
     stockoutItems: { groups: string[]; count: number; reorderSafety: number; coverDays: number };
     missingOpeningValue: { count: number };
+    /** Batch profiles: a bulk buy of short-dated stock that will not sell before it expires. */
+    shortDated?: { groups: string[]; count: number; buyOn: string; qty: [number, number]; lifeLeftDays: [number, number] };
+    /** Batch profiles: an oversized opening batch that expires during the period, partly unsold. */
+    expiredOpening?: { groups: string[]; count: number; lifeLeftDays: [number, number]; coverMultiple: number };
   };
 };

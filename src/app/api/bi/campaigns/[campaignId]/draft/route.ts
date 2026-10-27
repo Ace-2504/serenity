@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getDomainPack } from "@/domain/packs";
 import { LlmConfigError, LlmUnavailableError, OpenAICompatibleModel } from "@/server/assistant/llm";
 import { jsonError, requireBi } from "@/server/bi/api";
 import { CAN_IMPORT } from "@/server/bi/context";
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: { campaig
     if (problems.length) return jsonError(400, "INVALID_OFFER", problems.join("; "));
   }
   try {
-    return NextResponse.json(await suggestDraft(new OpenAICompatibleModel(), bi.tenant.name, c.goal, offer));
+    return NextResponse.json(await suggestDraft(new OpenAICompatibleModel(process.env, { localOnly: getDomainPack(bi.tenant.domainPack).sensitiveCustomerData }), bi.tenant.name, c.goal, offer));
   } catch (error) {
     if (!(error instanceof LlmUnavailableError || error instanceof LlmConfigError)) throw error;
     return NextResponse.json({ ...templateDraft(bi.tenant.name, c.goal, offer), note: `${error.message}; this is a template.` });

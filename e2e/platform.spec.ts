@@ -111,6 +111,30 @@ test("the assistant answers from the matching report when no model server runs",
   await expect(page.getByText(/Customers owe ₹/)).toBeVisible();
 });
 
+test("the pharmacy demo shows stock by expiry and keeps offers out of its campaigns", async () => {
+  await page.goto("/bi/imports");
+  await page.click('button:has-text("Pharmacy demo (6 months)")');
+  await expect(page.locator('button:has-text("Loading…")')).toHaveCount(0, { timeout: 8 * 60_000 });
+  await page.goto("/bi");
+  await expect(page.locator("h1")).toContainText("Sanjeevani");
+
+  await page.goto("/bi/inventory");
+  await expect(page.getByText("When does the stock expire?")).toBeVisible();
+  await expect(page.getByText("Expired stock", { exact: true })).toBeVisible();
+
+  await page.goto("/bi?all=1");
+  await expect(page.getByText(/of expired stock is still on hand/).first()).toBeVisible();
+
+  await page.goto("/bi/campaigns");
+  await page.fill('input[placeholder^="Win back"]', "E2E refill reminder");
+  await page.getByLabel("Who", { exact: false }).first().selectOption("segment");
+  await page.locator("label", { hasText: /^Segment/ }).locator("select").selectOption("champion");
+  await page.fill('input[placeholder^="Get an order"]', "Remind regular patients that their medicines are in stock");
+  await Promise.all([page.waitForURL(/\/bi\/campaigns\/[0-9a-f-]{36}$/), page.click('button:has-text("Create draft")')]);
+  await expect(page.getByText("No offers in this trade", { exact: false })).toBeVisible();
+  await expect(page.locator('input[inputmode="decimal"]')).toHaveCount(0);
+});
+
 test("no page raised a script error", () => {
   expect(pageErrors).toEqual([]);
 });

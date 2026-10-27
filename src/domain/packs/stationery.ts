@@ -25,8 +25,10 @@ export const stationeryPack: DomainPack = {
     { name: "Diwali gifting", months: [10, 11] }
   ],
   campaignPolicy: {
-    isPromotable: () => ({ allowed: true })
+    isPromotable: () => ({ allowed: true }),
+    generalOffersAllowed: true
   },
+  sensitiveCustomerData: false,
   glossary: {
     "stock item": "Item",
     party: "Customer or supplier",

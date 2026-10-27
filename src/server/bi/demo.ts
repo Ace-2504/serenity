@@ -2,25 +2,47 @@ import { prisma } from "@/lib/prisma";
 import { forTenant } from "@/server/db/tenant";
 import { generateDemoDataset } from "@/server/demo/engine";
 import { datasetToFiles } from "@/server/demo/files";
+import type { DemoProfile } from "@/server/demo/profile";
+import { pharmacyDemoProfile } from "@/server/demo/profiles/pharmacy";
 import { scaledProfile } from "@/server/demo/profiles/scale";
 import { stationeryDemoProfile } from "@/server/demo/profiles/stationery";
 import { inHoldout } from "@/server/campaigns/tokens";
 import { commitImport, stageImport } from "@/server/ingest/pipeline";
 
 export type DemoSize = "quick" | "full";
+export const DEMO_PACKS = ["stationery", "pharmacy"] as const;
+export type DemoPack = (typeof DEMO_PACKS)[number];
 
-const PROFILES = {
-  quick: scaledProfile(stationeryDemoProfile, { end: "2025-03-31", maxItemsPerGroup: 10, maxPartiesPerSegment: 30 }),
-  full: stationeryDemoProfile
+const quickPharmacy = scaledProfile(pharmacyDemoProfile, { end: "2025-03-31", maxItemsPerGroup: 10, maxPartiesPerSegment: 40 });
+const PROFILES: Record<DemoPack, Record<DemoSize, DemoProfile>> = {
+  stationery: {
+    quick: scaledProfile(stationeryDemoProfile, { end: "2025-03-31", maxItemsPerGroup: 10, maxPartiesPerSegment: 30 }),
+    full: stationeryDemoProfile
+  },
+  pharmacy: {
+    // Six months: the expiry plants move earlier so they show within the shorter period.
+    quick: {
+      ...quickPharmacy,
+      plant: {
+        ...quickPharmacy.plant,
+        shortDated: { ...quickPharmacy.plant.shortDated!, buyOn: "2025-01-05", lifeLeftDays: [90, 150] },
+        expiredOpening: { ...quickPharmacy.plant.expiredOpening!, lifeLeftDays: [60, 110] }
+      }
+    },
+    full: pharmacyDemoProfile
+  }
 };
+
+export const demoProfile = (pack: DemoPack, size: DemoSize) => PROFILES[pack][size];
 
 /**
  * Creates (or replaces) the user's demo business. Demo businesses are flagged isDemo and are
  * never mixed with real data; the data itself is loaded by loadDemoData, normally as a job.
  */
-export async function createDemoTenant(userId: string, size: DemoSize) {
-  const profile = PROFILES[size];
-  const previous = await prisma.membership.findMany({ where: { userId, role: "owner_admin", tenant: { isDemo: true } }, select: { tenantId: true } });
+export async function createDemoTenant(userId: string, size: DemoSize, pack: DemoPack = "stationery") {
+  const profile = PROFILES[pack][size];
+  // One demo business per trade: loading it again replaces the previous one.
+  const previous = await prisma.membership.findMany({ where: { userId, role: "owner_admin", tenant: { isDemo: true, domainPack: pack } }, select: { tenantId: true } });
   if (previous.length > 0) {
     await prisma.tenant.deleteMany({ where: { id: { in: previous.map((m) => m.tenantId) }, isDemo: true } });
   }
@@ -33,8 +55,10 @@ export async function createDemoTenant(userId: string, size: DemoSize) {
 export async function loadDemoData(tenantId: string, size: DemoSize, userId?: string, onStep?: (step: string) => void) {
   const db = forTenant(tenantId);
   onStep?.("generate");
+  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { domainPack: true } });
+  const pack = (DEMO_PACKS as readonly string[]).includes(tenant.domainPack) ? (tenant.domainPack as DemoPack) : "stationery";
   const source = await db.dataSource.create({ data: { tenantId, kind: "demo", name: `Synthetic demo data (${size})`, isDemo: true } });
-  const files = datasetToFiles(generateDemoDataset(PROFILES[size], 42));
+  const files = datasetToFiles(generateDemoDataset(PROFILES[pack][size], 42));
   onStep?.("stage");
   const staged = await stageImport(db, { tenantId, dataSourceId: source.id, files, userId });
   if (staged.status !== "validated") {
@@ -46,8 +70,8 @@ export async function loadDemoData(tenantId: string, size: DemoSize, userId?: st
 }
 
 /** Synchronous create + load, for scripts and tests. */
-export async function createDemoBusiness(userId: string, size: DemoSize) {
-  const tenant = await createDemoTenant(userId, size);
+export async function createDemoBusiness(userId: string, size: DemoSize, pack: DemoPack = "stationery") {
+  const tenant = await createDemoTenant(userId, size, pack);
   return { tenantId: tenant.id, ...(await loadDemoData(tenant.id, size, userId)) };
 }
 

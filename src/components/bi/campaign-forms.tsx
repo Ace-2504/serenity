@@ -82,13 +82,16 @@ export function CampaignEditor({
   subject: s0,
   body: b0,
   offer: o0,
-  editable
+  editable,
+  offersAllowed = true
 }: {
   id: string;
   subject: string;
   body: string;
   offer: number | null;
   editable: boolean;
+  /** False for trades whose campaigns may not carry offers (pharmacy). */
+  offersAllowed?: boolean;
 }) {
   const router = useRouter();
   const [subject, setSubject] = useState(s0);
@@ -107,10 +110,14 @@ export function CampaignEditor({
         Message. Use {"{{name}}"} for the customer&apos;s name and {"{{offer}}"} for the offer; an unsubscribe link is added to every message.
         <textarea className={input} rows={6} value={body} onChange={(e) => setBody(e.target.value)} maxLength={5000} />
       </label>
-      <label className="block text-xs text-graphite">
-        Offer: % off (leave blank for no offer; you approve it separately, nothing is discounted automatically)
-        <input className={`${input} max-w-[10rem]`} inputMode="decimal" value={offer} onChange={(e) => setOffer(e.target.value)} />
-      </label>
+      {offersAllowed ? (
+        <label className="block text-xs text-graphite">
+          Offer: % off (leave blank for no offer; you approve it separately, nothing is discounted automatically)
+          <input className={`${input} max-w-[10rem]`} inputMode="decimal" value={offer} onChange={(e) => setOffer(e.target.value)} />
+        </label>
+      ) : (
+        <p className="text-xs text-graphite">No offers in this trade&apos;s campaigns: a discount on the next order would also apply to prescription medicines, which may not be promoted.</p>
+      )}
       <button
         type="button"
         className="mr-2 rounded-full border border-mist px-4 py-1.5 text-sm hover:border-ink"

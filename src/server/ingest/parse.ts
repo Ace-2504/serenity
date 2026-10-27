@@ -7,6 +7,7 @@ import {
   CONTROL_TOTAL_COLUMNS,
   CONTROL_TOTAL_METRICS,
   CUSTOMER_ORDER_COLUMNS,
+  BATCH_COLUMNS,
   ITEM_COLUMNS,
   OUTSTANDING_COLUMNS,
   PARTY_COLUMNS,
@@ -66,6 +67,24 @@ export type LineDraft = {
   taxableAmount: Decimal;
   taxRate: Decimal;
   taxAmount: Decimal;
+  // Present only when given, so imports without them hash as before.
+  batchNo?: string;
+  expiryDate?: string;
+  /** Per unit, tax-inclusive. */
+  mrp?: Decimal;
+  /** Taxable and tax were backed out of a tax-inclusive line total. */
+  inclusive?: true;
+};
+
+export type BatchDraft = {
+  rowRef: string;
+  itemCode: string;
+  batchNo: string;
+  expiryDate: string | null;
+  mfgDate: string | null;
+  mrp: Decimal | null;
+  openingQty: Decimal;
+  openingValue: Decimal | null;
 };
 
 export type VoucherDraft = {
@@ -154,6 +173,7 @@ export type ParsedBundle = {
   stockSnapshots: StockSnapshotDraft[];
   outstanding: OutstandingDraft[];
   controlTotals: ControlTotalDraft[];
+  batches: BatchDraft[];
 };
 
 type FileSpec = { file: string; entity: string; columns: readonly string[]; required: readonly string[]; mandatory: boolean };
@@ -165,9 +185,11 @@ const SPECS: FileSpec[] = [
     file: TEMPLATE_FILES.vouchers,
     entity: "voucher",
     columns: VOUCHER_COLUMNS,
-    required: ["voucher_type", "voucher_no", "date", "party_code", "line_no", "item_code", "qty", "rate", "taxable_amount", "gst_rate", "tax_amount"],
+    // taxable_amount and tax_amount may be replaced by amount_incl_tax (checked per row).
+    required: ["voucher_type", "voucher_no", "date", "party_code", "line_no", "item_code", "qty", "rate", "gst_rate"],
     mandatory: true
   },
+  { file: TEMPLATE_FILES.batches, entity: "batch", columns: BATCH_COLUMNS, required: ["item_code", "batch_no", "opening_qty"], mandatory: false },
   { file: TEMPLATE_FILES.controlTotals, entity: "control_total", columns: CONTROL_TOTAL_COLUMNS, required: CONTROL_TOTAL_COLUMNS, mandatory: true },
   { file: TEMPLATE_FILES.settlements, entity: "settlement", columns: SETTLEMENT_COLUMNS, required: SETTLEMENT_COLUMNS, mandatory: false },
   { file: TEMPLATE_FILES.stockSummary, entity: "stock_snapshot", columns: STOCK_SUMMARY_COLUMNS, required: ["item_code", "as_of", "qty"], mandatory: false },
@@ -295,8 +317,9 @@ export function parseBundle(uploads: UploadedFile[], log: IssueLog): ParsedBundl
   const outstanding = parseOutstanding(rowsOf(spec(TEMPLATE_FILES.outstanding)), log);
   const charges = parseCharges(rowsOf(spec(TEMPLATE_FILES.channelCharges)), log);
   const customerOrders = parseCustomerOrders(rowsOf(spec(TEMPLATE_FILES.customerOrders)), log);
+  const batches = parseBatches(rowsOf(spec(TEMPLATE_FILES.batches)), log);
 
-  return { bundleSha256: bundleHash(files), kind, files, items, parties, vouchers, settlements, charges, customerOrders, stockSnapshots, outstanding, controlTotals };
+  return { bundleSha256: bundleHash(files), kind, files, items, parties, vouchers, settlements, charges, customerOrders, stockSnapshots, outstanding, controlTotals, batches };
 }
 
 /** Our CSV writer prefixes formula-like text with an apostrophe; undo that on the way in. */
@@ -392,6 +415,23 @@ function parseItems(rows: Row[], log: IssueLog): ItemDraft[] {
   return out;
 }
 
+function parseBatches(rows: Row[], log: IssueLog): BatchDraft[] {
+  const out: BatchDraft[] = [];
+  for (const row of rows) {
+    const r = new FieldReader(row, "batch", log);
+    const itemCode = r.text("item_code", { required: true, max: 64 });
+    const batchNo = r.text("batch_no", { required: true, max: 64 });
+    const expiryDate = r.date("expiry_date");
+    const mfgDate = r.date("mfg_date");
+    const mrp = r.decimal("mrp", { scale: 2 });
+    const openingQty = r.decimal("opening_qty", { required: true, scale: 3 });
+    const openingValue = money(r, "opening_value", false);
+    if (itemCode === null || batchNo === null || openingQty === null) continue;
+    out.push({ rowRef: row.rowRef, itemCode, batchNo, expiryDate, mfgDate, mrp, openingQty, openingValue });
+  }
+  return out;
+}
+
 function parseParties(rows: Row[], log: IssueLog): PartyDraft[] {
   const out: PartyDraft[] = [];
   for (const row of rows) {
@@ -436,10 +476,22 @@ function parseVouchers(rows: Row[], log: IssueLog): VoucherDraft[] {
     const qty = r.decimal("qty", { required: true, scale: 3, positive: true });
     const rate = r.decimal("rate", { required: true, scale: 4 });
     const discount = money(r, "discount_amount", false) ?? new D(0);
-    const taxable = money(r, "taxable_amount");
     const taxRate = r.decimal("gst_rate", { required: true, scale: 2 });
-    const tax = money(r, "tax_amount");
+    // Either taxable + tax, or a tax-inclusive line total to back GST out of.
+    const inclusiveTotal = row.get("taxable_amount") === "" && row.get("tax_amount") === "" ? money(r, "amount_incl_tax", false) : null;
+    let taxable: Decimal | null = null;
+    let tax: Decimal | null = null;
+    if (inclusiveTotal !== null && taxRate !== null) {
+      taxable = inclusiveTotal.mul(100).div(taxRate.add(100)).toDecimalPlaces(2, D.ROUND_HALF_UP);
+      tax = inclusiveTotal.sub(taxable);
+    } else if (inclusiveTotal === null) {
+      taxable = money(r, "taxable_amount");
+      tax = money(r, "tax_amount");
+    }
     const adjustment = r.decimal("adjustment_incl_tax", { scale: 2, allowNegative: true }) ?? new D(0);
+    const batchNo = r.text("batch_no", { max: 64 });
+    const expiryDate = r.date("expiry_date");
+    const mrp = r.decimal("mrp", { scale: 2 });
     if (type === null || number === null || date === null || partyCode === null || lineNo === null || itemCode === null) continue;
     if (qty === null || rate === null || taxable === null || taxRate === null || tax === null) continue;
 
@@ -473,12 +525,17 @@ function parseVouchers(rows: Row[], log: IssueLog): VoucherDraft[] {
       lineNo,
       itemCode,
       qty,
-      rate,
-      grossAmount: qty.mul(rate).toDecimalPlaces(2, D.ROUND_HALF_UP),
+      // With a tax-inclusive total, rate is the printed (inclusive) price; the ex-tax rate is derived.
+      rate: inclusiveTotal === null ? rate : taxable.add(discount).div(qty).toDecimalPlaces(4, D.ROUND_HALF_UP),
+      grossAmount: inclusiveTotal === null ? qty.mul(rate).toDecimalPlaces(2, D.ROUND_HALF_UP) : taxable.add(discount),
       discountAmount: discount,
       taxableAmount: taxable,
       taxRate,
-      taxAmount: tax
+      taxAmount: tax,
+      ...(batchNo === null ? {} : { batchNo }),
+      ...(expiryDate === null ? {} : { expiryDate }),
+      ...(mrp === null ? {} : { mrp }),
+      ...(inclusiveTotal === null ? {} : { inclusive: true as const })
     });
   }
   return [...byKey.values()];

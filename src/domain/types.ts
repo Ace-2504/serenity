@@ -26,7 +26,17 @@ export type DomainPack = {
   campaignPolicy: {
     /** Decides whether an item may appear in promotional content. */
     isPromotable(attributes: Record<string, unknown>): { allowed: boolean; reason?: string };
+    /**
+     * Whether campaigns may carry a general offer (e.g. "10% off your next order"). Off when such an
+     * offer would also discount items that may not be promoted (prescription medicines).
+     */
+    generalOffersAllowed: boolean;
   };
+  /**
+   * Customer purchase history reveals sensitive facts (health conditions for a pharmacy): such data
+   * is never sent to a model server outside this machine or network, whatever LLM_ALLOW_REMOTE says.
+   */
+  sensitiveCustomerData: boolean;
   /** Trade vocabulary for import header matching and assistant prompts. */
   glossary: Record<string, string>;
 };

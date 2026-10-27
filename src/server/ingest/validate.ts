@@ -124,6 +124,7 @@ export function validateBundle(bundle: ParsedBundle, known: KnownRecords, log: I
       checkReturn(voucher, salesByKey, voucherKeys, returnedQty, log);
     }
   }
+  checkBatches(bundle, allItems, log);
 
   // Settlements: bills must exist and must not be over-settled.
   const billTotals = new Map<string, { remaining: Decimal; party: string; date: string }>();
@@ -271,4 +272,65 @@ function reconcileControlTotals(bundle: ParsedBundle, log: IssueLog): ControlRec
     if (!seen.has(metric)) log.warning("MISSING_CONTROL_TOTAL", "control_total", `No control total for ${metric}; it cannot be reconciled`);
   }
   return result;
+}
+
+/**
+ * Batch and MRP checks (batch-tracked trades). Selling above MRP or after expiry is not allowed
+ * in India, so both are flagged; they are warnings because the import must still reflect what the
+ * books say.
+ */
+function checkBatches(bundle: ParsedBundle, allItems: Set<string>, log: IssueLog) {
+  const expiryOf = new Map<string, { expiry: string; rowRef: string }>();
+  const noteExpiry = (itemCode: string, batchNo: string, expiry: string | null | undefined, rowRef: string) => {
+    if (!expiry) return;
+    const key = `${itemCode}|${batchNo}`;
+    const seen = expiryOf.get(key);
+    if (!seen) expiryOf.set(key, { expiry, rowRef });
+    else if (seen.expiry !== expiry) {
+      log.warning("BATCH_EXPIRY_CONFLICT", "batch", `${itemCode} batch ${batchNo}: expiry ${expiry} differs from ${seen.expiry} given earlier; the first is kept`, { rowRef, field: "expiry_date" });
+    }
+  };
+
+  // Opening stock by batch must add up to the item's opening quantity.
+  const items = new Map(bundle.items.map((i) => [i.code, i]));
+  const openingByItem = new Map<string, { qty: Decimal; value: Decimal | null; rowRef: string }>();
+  const seen = new Set<string>();
+  for (const b of bundle.batches) {
+    const key = `${b.itemCode}|${b.batchNo}`;
+    if (seen.has(key)) log.error("DUPLICATE_KEY", "batch", `${b.itemCode} batch ${b.batchNo} appears more than once`, { rowRef: b.rowRef });
+    seen.add(key);
+    if (!allItems.has(b.itemCode)) log.error("UNKNOWN_ITEM", "batch", `batch ${b.batchNo}: item ${b.itemCode} is not in items.csv or an earlier import`, { rowRef: b.rowRef, field: "item_code" });
+    if (b.expiryDate && b.mfgDate && b.expiryDate < b.mfgDate) log.error("INVALID_VALUE", "batch", `${b.itemCode} batch ${b.batchNo}: expiry is before manufacture`, { rowRef: b.rowRef, field: "expiry_date" });
+    noteExpiry(b.itemCode, b.batchNo, b.expiryDate, b.rowRef);
+    const sum = openingByItem.get(b.itemCode) ?? { qty: new D(0), value: new D(0), rowRef: b.rowRef };
+    sum.qty = sum.qty.add(b.openingQty);
+    sum.value = sum.value === null || b.openingValue === null ? null : sum.value.add(b.openingValue);
+    openingByItem.set(b.itemCode, sum);
+  }
+  for (const [code, sum] of openingByItem) {
+    const item = items.get(code);
+    if (!item) continue;
+    if (!sum.qty.eq(item.openingQty)) {
+      log.error("BATCH_OPENING_MISMATCH", "batch", `${code}: opening batches add up to ${sum.qty.toFixed()} but items.csv says ${item.openingQty.toFixed()}`, { rowRef: sum.rowRef, field: "opening_qty" });
+    } else if (sum.value !== null && item.openingValue !== null && sum.value.sub(item.openingValue).abs().gt(PAISA)) {
+      log.warning("BATCH_OPENING_VALUE_MISMATCH", "batch", `${code}: opening batch values add up to ${sum.value.toFixed(2)}, items.csv says ${item.openingValue.toFixed(2)}`, { rowRef: sum.rowRef, field: "opening_value" });
+    }
+  }
+
+  for (const voucher of bundle.vouchers) {
+    for (const line of voucher.lines) {
+      if (line.batchNo) {
+        noteExpiry(line.itemCode, line.batchNo, line.expiryDate, line.rowRef);
+        if (voucher.type === "sales_invoice" && line.expiryDate && line.expiryDate < voucher.date) {
+          log.warning("SOLD_AFTER_EXPIRY", "voucher", `${voucher.number}: ${line.itemCode} batch ${line.batchNo} sold on ${voucher.date}, after its expiry ${line.expiryDate}`, { rowRef: line.rowRef, field: "expiry_date" });
+        }
+      }
+      if (voucher.type === "sales_invoice" && line.mrp && line.qty.gt(0)) {
+        const unitInclTax = line.taxableAmount.add(line.taxAmount).div(line.qty);
+        if (unitInclTax.sub(line.mrp).gt(PAISA)) {
+          log.warning("ABOVE_MRP", "voucher", `${voucher.number}: ${line.itemCode} sold at ${unitInclTax.toFixed(2)} per unit incl. GST, above its MRP ${line.mrp.toFixed(2)}`, { rowRef: line.rowRef, field: "mrp" });
+        }
+      }
+    }
+  }
 }

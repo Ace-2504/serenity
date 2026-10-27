@@ -665,3 +665,72 @@ playwright          16 passed against Docker Compose
 * Logs are plain console output (no structured logging yet).
 * The `ollama` service (0.12.6) starts and the app reaches it at `http://ollama:11434` (empty model list), but no model could be pulled: this environment's proxy refuses `registry.ollama.ai` and `huggingface.co`. The assistant with a real model is still unverified.
 * No TLS in the stack: use a reverse proxy (guide §2).
+
+---
+
+## M12 — Pharmacy domain pack (batch and expiry, MRP billing, stricter campaigns)
+
+**What was built** (details: [08-domain-packs.md §3](08-domain-packs.md))
+* **Import:**
+  * optional `vouchers.csv` columns `batch_no`, `expiry_date`, `mrp`, `amount_incl_tax`, and an optional `batches.csv` for opening stock by batch;
+  * GST is backed out of tax-inclusive line totals;
+  * new checks: opening batches must add up to the item's opening quantity (error); conflicting expiry dates, a sale after expiry and a sale above MRP are warnings;
+  * `MISSING_BATCH` is a warning for packs that require batches;
+  * batches are stored, linked from voucher lines and stock movements, and analysed after loading.
+* **Expiry analytics** (`analytics/expiry.ts`, KPI dictionary C2): stock per batch, with issues lacking a batch taken earliest-expiry first; expired, near-expiry (90 days for pharmacy) and likely-unsold value, projected at the last 90 days' sales rate. Shown on the Inventory page and through the assistant's `expiry_risk` tool.
+* **Findings:**
+  * `EXPIRED_STOCK` (one per business);
+  * `NEAR_EXPIRY_AT_RISK` (per item, top 10), with measurable outcomes;
+  * the suggested action respects the pack's promotion policy.
+* **Pharmacy pack** is now active and can be chosen when creating a business:
+  * no campaign may carry an offer (it would discount prescription medicines too); enforced in the service and hidden in the editor;
+  * customer data is never sent to a non-local model server, even with `LLM_ALLOW_REMOTE=1`.
+* **Demo:** a fictional Lucknow chemist (6 months or 2 years), available from the Imports page.
+  * Generator support for batches: every purchase is a batch, and sales take the earliest unexpired batch first (FEFO).
+  * Retail lines are billed at MRP as tax-inclusive totals.
+  * Planted problems: oversized opening batches that expire, short-dated bulk buys, patients who stop refilling, margin erosion, slow-paying clinics and stockouts.
+  * Stationery output is unchanged apart from four empty new columns. Generator version 1.2.0.
+
+**Results on the two-year pharmacy demo** (synthetic; as of 30 Sep 2026)
+* Loaded through the normal import pipeline in **63 s**. The import reconciled to its control totals, and the stock ledger matched the generator's closing stock exactly.
+* 57,428 voucher rows; 47,484 of the 54,700 sales lines are MRP-inclusive.
+* **Inventory page:**
+  * expired stock **₹1.8 L** (6 batches);
+  * **₹1.7 L** expiring within 90 days, of which **₹1.5 L** is likely to stay unsold at the recent sales rate.
+  * The largest expired batch is the planted oversized opening batch (2,854 units).
+* **25 findings**, including:
+  * expired stock;
+  * four near-expiry items;
+  * margin erosion on chronic medicines (19.6% → 6.2%);
+  * discounts rising;
+  * slow-paying clinics;
+  * patients who stopped ordering;
+  * stockouts of chronic medicines.
+* The near-expiry action for Schedule H items says "Do not discount or promote it". For a wellness item it allows telling past buyers, without a discount.
+* Screenshots: `screenshots/m12-inventory-expiry.png`, `screenshots/m12-near-expiry-finding.png`.
+
+* **Bug found while checking the demo:** the "likely to expire unsold" figure first summed every unexpired batch, so the assistant reported ₹4.3 L unsold out of ₹1.7 L expiring. It now counts only the near-expiry window (₹1.5 L of ₹1.7 L), as the KPI dictionary states.
+
+**Tests (actual results)**
+```
+npm test            19 files, 163 tests passed (new: tax-inclusive/batch import 5, expiry projection 4, pharmacy demo profile 6)
+npm run test:int    14 files, 119 tests passed (324 s; new: pharmacy pack acceptance 9)
+pytest (ml/)        16 passed
+playwright          17 passed (new: pharmacy demo, expiry page, campaign without offers)
+```
+* **Pharmacy acceptance test** (`src/domain/packs/pharmacy.int.test.ts`) on two years of pharmacy data:
+  * **Generic checks (no pharmacy code):** the import validates and reconciles; the stock ledger reproduces closing stock exactly, in quantity and value; net sales and known-cost COGS match the generator in every financial year; deleting the business removes its batches.
+  * **Pack checks:**
+    * stock per batch equals the generator's batches on hand exactly;
+    * planted expired and short-dated batches are found;
+    * one expired-stock finding and several near-expiry findings, none suggesting promotion of a scheduled medicine;
+    * an offer in a pharmacy campaign is refused;
+    * a remote model server is refused even when remote use is allowed.
+* **Generator, black box:** a replay from the emitted rows confirms that no batch is sold after expiry and none while an earlier-expiring batch had stock (FEFO). Every stock line carries a batch, and retail is billed at or below MRP.
+
+**Known limitations**
+* **Legal review not done.** The schedule rules, the no-offers policy and the health-data handling follow public sources read by a non-lawyer; a qualified professional must review them before a real pharmacy relies on them. The Schedule H1 register and NPPA price ceilings are not implemented.
+* Cost is pooled per item (weighted average), not per batch, so batch values use the item's average cost.
+* Expiry projections ignore seasonality; refills are modelled as random monthly purchases, not prescriptions.
+* No adapter for pharmacy ERPs (e.g. Marg); pharmacy data comes in through the template or Tally.
+* The core gained generic batch support rather than "zero core changes"; see 08-domain-packs.md §3.1.

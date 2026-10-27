@@ -1,3 +1,4 @@
+import { getDomainPack } from "@/domain/packs";
 import { Prisma, type Campaign } from "@prisma/client";
 import { customerRfm } from "@/server/analytics/customers";
 import { dataSpan } from "@/server/analytics/profitability";
@@ -155,6 +156,7 @@ export async function updateCampaign(
   if (change.offer !== undefined) {
     const problems = validateOffer(change.offer);
     if (problems.length) throw new WorkflowError(problems.join("; "));
+    if (change.offer !== null) await assertOffersAllowed(db, tenantId);
     const next = edit(stateOf(campaign, await eligibleTreatment(db, campaign.id)), "offer", { hasOffer: change.offer !== null });
     campaign = await save(db, tenantId, userId, campaign, next, { offer: change.offer === null ? Prisma.JsonNull : (change.offer as Prisma.InputJsonValue) }, "offer_changed");
   }
@@ -162,8 +164,18 @@ export async function updateCampaign(
 }
 
 /** Owner approval of one step. The audience is recomputed first, so the owner approves the current list. */
+/** The trade's campaign policy: no general offers where they would discount items that may not be promoted. */
+async function assertOffersAllowed(db: TenantDb, tenantId: string) {
+  const tenant = await db.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { domainPack: true } });
+  const pack = getDomainPack(tenant.domainPack);
+  if (!pack.campaignPolicy.generalOffersAllowed) {
+    throw new WorkflowError(`${pack.label} campaigns cannot carry an offer: a discount on the next order would also apply to prescription medicines, which may not be promoted. Send the message without an offer.`);
+  }
+}
+
 export async function approveStep(db: TenantDb, tenantId: string, userId: string, campaignId: string, step: Approval) {
   let campaign = await db.campaign.findFirstOrThrow({ where: { id: campaignId } });
+  if (step === "offer" || (step === "send" && campaign.offer !== null)) await assertOffersAllowed(db, tenantId);
   if (step === "audience") await buildRecipients(db, tenantId, campaign);
   const next = approve(stateOf(campaign, await eligibleTreatment(db, campaign.id)), step, userId);
   campaign = await save(db, tenantId, userId, campaign, next, {}, `approve_${step}`);

@@ -36,8 +36,12 @@ export function llmSettings(env: Record<string, string | undefined> = process.en
 export class OpenAICompatibleModel implements ChatModel {
   readonly name: string;
   private readonly baseUrl: string;
-  constructor(env: Record<string, string | undefined> = process.env) {
+  /** `localOnly`: refuse a remote server even when LLM_ALLOW_REMOTE=1 (sensitive customer data). */
+  constructor(env: Record<string, string | undefined> = process.env, options: { localOnly?: boolean } = {}) {
     const s = llmSettings(env);
+    if (!s.local && options.localOnly) {
+      throw new LlmConfigError(`The assistant is set to use ${s.host}, outside this machine or network. This business's customer data is sensitive (health), so it is only ever sent to a model server on this network.`);
+    }
     if (!s.local && !s.remoteAllowed) {
       throw new LlmConfigError(`The assistant is set to use ${s.host}, which is not on this machine or network. External AI services are off; set LLM_ALLOW_REMOTE=1 only if the owner agrees to send business data there.`);
     }

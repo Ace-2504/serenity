@@ -7,6 +7,8 @@ export const RULE_LABELS: Record<string, string> = Object.fromEntries(RULES.map(
 
 const UNITS: Record<string, (v: number) => string> = {
   item_stock_value: formatInrCompact,
+  expired_stock_value: formatInrCompact,
+  batch_stock_value: formatInrCompact,
   channel_item_contribution: (v) => `${formatInrCompact(v)} per unit`,
   group_gross_margin: (v) => `${v.toFixed(1)}%`,
   group_discount_rate: (v) => `${v.toFixed(1)}%`,

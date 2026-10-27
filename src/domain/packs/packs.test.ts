@@ -12,9 +12,10 @@ describe("domain pack registry", () => {
     expect(() => getDomainPack("bakery")).toThrow(/Unknown domain pack/);
   });
 
-  it("does not allow selecting a planned pack for a tenant", () => {
+  it("lets a tenant select every active pack, and only active packs", () => {
     expect(getSelectableDomainPack("stationery").id).toBe("stationery");
-    expect(() => getSelectableDomainPack("pharmacy")).toThrow(/planned/);
+    expect(getSelectableDomainPack("pharmacy").id).toBe("pharmacy");
+    for (const pack of listDomainPacks().filter((p) => p.status === "planned")) expect(() => getSelectableDomainPack(pack.id)).toThrow(/planned/);
   });
 
   it("keeps thresholds internally consistent", () => {

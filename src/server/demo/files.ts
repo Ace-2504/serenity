@@ -2,6 +2,7 @@ import { toCsv } from "@/server/demo/csv";
 import type { DemoDataset } from "@/server/demo/engine";
 import type { UploadedFile } from "@/server/ingest/parse";
 import {
+  BATCH_COLUMNS,
   CHANNEL_CHARGE_COLUMNS,
   CONTROL_TOTAL_COLUMNS,
   CUSTOMER_ORDER_COLUMNS,
@@ -26,6 +27,7 @@ export function datasetToFiles(data: DemoDataset): UploadedFile[] {
     file(TEMPLATE_FILES.outstanding, toCsv(OUTSTANDING_COLUMNS, data.outstanding)),
     file(TEMPLATE_FILES.channelCharges, toCsv(CHANNEL_CHARGE_COLUMNS, data.channelCharges)),
     ...(data.customerOrders.length > 0 ? [file(TEMPLATE_FILES.customerOrders, toCsv(CUSTOMER_ORDER_COLUMNS, data.customerOrders))] : []),
+    ...(data.batches.length > 0 ? [file(TEMPLATE_FILES.batches, toCsv(BATCH_COLUMNS, data.batches))] : []),
     file(TEMPLATE_FILES.controlTotals, toCsv(CONTROL_TOTAL_COLUMNS, data.controlTotals))
   ];
 }

@@ -26,6 +26,7 @@ type RawTx = {
 type LedgerLine = {
   id: string;
   itemId: string;
+  batchId: string | null;
   qty: Decimal;
   taxableAmount: Decimal;
   costAmount: Decimal | null;
@@ -50,7 +51,7 @@ const RANK: Partial<Record<VoucherType, number>> = { opening_stock: 0, purchase_
 export async function rebuildStockLedger(tx: RawTx, tenantId: string): Promise<LedgerSummary> {
   const started = Date.now();
   const lines = await tx.$queryRaw<LedgerLine[]>`
-    SELECT l."id", l."itemId", l."qty", l."taxableAmount", l."costAmount", v."type", v."date", v."id" AS "voucherId", v."originalVoucherId"
+    SELECT l."id", l."itemId", l."batchId", l."qty", l."taxableAmount", l."costAmount", v."type", v."date", v."id" AS "voucherId", v."originalVoucherId"
     FROM "VoucherLine" l
     JOIN "Voucher" v ON v."tenantId" = l."tenantId" AND v."id" = l."voucherId"
     WHERE l."tenantId" = ${tenantId} AND v."status" = 'active'
@@ -144,6 +145,8 @@ export async function rebuildStockLedger(tx: RawTx, tenantId: string): Promise<L
       id: randomUUID(),
       tenantId,
       itemId: line.itemId,
+      // Cost is pooled per item (WAC); the batch only records which pack moved, for expiry.
+      batchId: line.batchId,
       voucherLineId: line.id,
       date: line.date,
       seq: s.seq,
@@ -176,6 +179,7 @@ const MOVEMENT_COLUMNS = {
   id: "text",
   tenantId: "text",
   itemId: "text",
+  batchId: "text",
   voucherLineId: "text",
   date: "date",
   seq: "int",

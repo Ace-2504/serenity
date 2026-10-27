@@ -23,7 +23,9 @@ export const RULES: { id: string; label: string; run: (ctx: RuleContext) => Find
   { id: "LAPSING_KEY_CUSTOMER", label: "Valuable customer has gone quiet", run: lapsingCustomers },
   { id: "STOCKOUT_REPEAT", label: "Repeated stockouts losing sales", run: stockouts },
   { id: "CHANNEL_LOSS_MAKER", label: "Product loses money on a channel", run: channelLossMakers },
-  { id: "FILL_RATE_LOW", label: "Supplying less than a platform ordered", run: lowFillRate }
+  { id: "FILL_RATE_LOW", label: "Supplying less than a platform ordered", run: lowFillRate },
+  { id: "EXPIRED_STOCK", label: "Expired stock still on hand", run: expiredStock },
+  { id: "NEAR_EXPIRY_AT_RISK", label: "Stock likely to expire before it sells", run: nearExpiry }
 ];
 
 function slowMovers(ctx: RuleContext): FindingDraft[] {
@@ -423,6 +425,103 @@ function lowFillRate(ctx: RuleContext): FindingDraft[] {
           "Penalties or fill-rate debits are not included unless imported as channel charges."
         ],
         measurePlan: { metric: "channel_fill_rate", label: `${label} fill rate over the next 90 days`, baseline: c.fillRate! * 100, checkAfterDays: 90, successWhen: `reaches ${(C.fillRateTarget * 100).toFixed(0)}%`, target: C.fillRateTarget * 100, direction: "increase" }
+      } satisfies FindingDraft;
+    });
+}
+
+function batchTable(ctx: RuleContext, batches: NonNullable<RuleContext["expiry"]>["batches"], qty: (b: (typeof batches)[number]) => number, value: (b: (typeof batches)[number]) => number | null) {
+  return {
+    columns: ["Item", "Batch", "Expiry", "Units", "Value at cost"],
+    rows: batches.map((b) => [ctx.items.get(b.itemId)?.name ?? "—", b.batchNo, b.expiryDate ?? "—", String(Math.round(qty(b))), value(b) === null ? "unknown cost" : inr(value(b)!)])
+  };
+}
+
+function expiredStock(ctx: RuleContext): FindingDraft[] {
+  const expired = (ctx.expiry?.batches ?? []).filter((b) => b.bucket === "expired");
+  const value = expired.reduce((s, b) => s + (b.value ?? 0), 0);
+  if (value < C.expiredMinValue) return [];
+  const top = [...expired].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, 10);
+  return [
+    {
+      ruleId: "EXPIRED_STOCK",
+      dedupeKey: "EXPIRED_STOCK|business",
+      entityType: "business",
+      entityId: null,
+      entityLabel: "Whole business",
+      severity: severityFor(value, 50_000, 10_000),
+      title: `${inr(value)} of expired stock is still on hand (${expired.length} batch${expired.length === 1 ? "" : "es"})`,
+      whatHappened: `${expired.length} batch${expired.length === 1 ? " has" : "es have"} passed expiry with ${Math.round(expired.reduce((s, b) => s + b.qty, 0))} units still in stock, worth ${inr(value)} at cost.`,
+      evidence: { facts: [{ label: "Expired batches", value: String(expired.length) }, { label: "Value at cost", value: inr(value) }, { label: "As of", value: ctx.asOf }], table: batchTable(ctx, top, (b) => b.qty, (b) => b.value) },
+      whyItMatters: "Expired medicines must not be sold or dispensed. Unless the distributor takes them back for credit, their cost is a loss, and keeping them on the shelf risks selling one by mistake.",
+      suggestedAction:
+        "Move these packs out of saleable stock today. Ask each distributor about their expiry-return terms (many give a credit note within a set window), record returns as purchase returns, and dispose of the rest as the rules for medicine waste require. Review how much of these items you buy.",
+      impactInr: value,
+      impactFormula: "Expired stock = units of expired batches × weighted-average cost",
+      assumptions: [
+        "Stock by batch comes from the batch numbers on purchase and sales lines; sales without a batch are taken from the earliest-expiring batch.",
+        "Whether a distributor gives credit for expired stock depends on your agreement with them; this is not known from the books."
+      ],
+      measurePlan: { metric: "expired_stock_value", label: "Expired stock on hand", baseline: value, checkAfterDays: 30, successWhen: "falls by at least 90%", target: value * 0.1, direction: "decrease" }
+    }
+  ];
+}
+
+function nearExpiry(ctx: RuleContext): FindingDraft[] {
+  if (!ctx.expiry) return [];
+  const days = ctx.pack.thresholds.nearExpiryDays ?? 90;
+  const atRisk = ctx.expiry.batches.filter((b) => b.daysToExpiry !== null && b.daysToExpiry >= 0 && b.daysToExpiry <= days && b.atRiskQty > 0 && b.atRiskValue !== null);
+  const byItem = new Map<string, typeof atRisk>();
+  for (const b of atRisk) byItem.set(b.itemId, [...(byItem.get(b.itemId) ?? []), b]);
+  return [...byItem.entries()]
+    .map(([itemId, batches]) => ({ itemId, batches, value: batches.reduce((s, b) => s + b.atRiskValue!, 0) }))
+    .filter((x) => x.value >= C.nearExpiryMinValue)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, C.nearExpiryMaxFindings)
+    .map(({ itemId, batches, value }) => {
+      const item = ctx.items.get(itemId)!;
+      const first = batches[0];
+      const rate = ctx.expiry!.dailyRate.get(itemId) ?? 0;
+      const promotable = ctx.pack.campaignPolicy.isPromotable((item.attributes ?? {}) as Record<string, unknown>);
+      const units = Math.round(batches.reduce((s, b) => s + b.atRiskQty, 0));
+      return {
+        ruleId: "NEAR_EXPIRY_AT_RISK",
+        dedupeKey: `NEAR_EXPIRY_AT_RISK|${itemId}`,
+        entityType: "item",
+        entityId: itemId,
+        entityLabel: item.name,
+        severity: severityFor(value, 25_000, 5_000),
+        title: `${inr(value)} of ${item.name} may expire before it sells (first batch expires ${first.expiryDate})`,
+        whatHappened: `${units} units in ${batches.length} batch${batches.length === 1 ? "" : "es"} expiring within ${days} days are not expected to sell in time: the item sold ${(rate * 30).toFixed(1)} units a month over the last 90 days.`,
+        evidence: {
+          facts: [
+            { label: "Units likely unsold at expiry", value: String(units) },
+            { label: "Value at cost", value: inr(value) },
+            { label: "Recent sales", value: `${(rate * 30).toFixed(1)} units a month` },
+            { label: "Near-expiry window", value: `${days} days` }
+          ],
+          table: batchTable(ctx, batches, (b) => b.atRiskQty, (b) => b.atRiskValue)
+        },
+        whyItMatters: "Once these batches expire they cannot be sold, and their cost becomes a loss unless the distributor takes them back. Returns are usually easier before expiry than after.",
+        suggestedAction: promotable.allowed
+          ? `Ask the distributor to take back the batches you will not sell, or exchange them. Keep them at the front so they sell first, and stop reordering ${item.name} until they are gone. As it is not a prescription medicine, you may tell customers who bought it before that it is in stock${ctx.pack.campaignPolicy.generalOffersAllowed ? " or offer a discount" : " (campaigns in this trade carry no discounts)"}; the campaign still needs your approval.`
+          : `Ask the distributor to take back or exchange the batches you will not sell before they expire. Keep them at the front so they sell first, and stop reordering ${item.name} until they are gone. Do not discount or promote it: ${promotable.reason ?? "this item may not be promoted"}.`,
+        impactInr: value,
+        impactFormula: "At risk = units not expected to sell before expiry (recent daily sales × days left, earliest batch first) × weighted-average cost",
+        assumptions: [
+          "Sales continue at the last 90 days' average; seasonal demand can make this better or worse.",
+          "Earlier-expiring batches are sold first.",
+          "The value is at cost; a return credit or exchange may recover some or all of it."
+        ],
+        measurePlan: {
+          metric: "batch_stock_value",
+          label: "Value still on hand from these batches",
+          baseline: batches.reduce((s, b) => s + (b.value ?? 0), 0),
+          checkAfterDays: C.nearExpiryCheckDays,
+          successWhen: "falls by at least half",
+          target: batches.reduce((s, b) => s + (b.value ?? 0), 0) / 2,
+          direction: "decrease",
+          subjects: batches.map((b) => b.batchId)
+        }
       } satisfies FindingDraft;
     });
 }

@@ -275,3 +275,42 @@ describe("bill-level adjustments (round-off, freight)", () => {
     expect(run(miniFiles({ vouchers })).codes).toContain("error:VOUCHER_HEADER_MISMATCH");
   });
 });
+
+describe("batches, expiry, MRP and tax-inclusive lines", () => {
+  // A chemist's sale at MRP: 2 strips at Rs 56.00 each incl. 12% GST, 10% off -> Rs 100.80 incl. GST.
+  const sale = (over: Partial<VoucherRow> = {}) =>
+    line({ qty: "2", rate: "56.00", discount_amount: "", taxable_amount: "", tax_amount: "", amount_incl_tax: "100.80", batch_no: "B23", expiry_date: "2027-03-31", mrp: "56.00", ...over });
+
+  it("backs GST out of a tax-inclusive line total", () => {
+    const { bundle, codes } = run(miniFiles({ vouchers: [sale()], controls: controls({ sales_taxable: "90.00", sales_tax: "10.80" }) }));
+    expect(codes).toEqual([]);
+    const l = bundle.vouchers[0].lines[0];
+    expect([l.taxableAmount.toFixed(2), l.taxAmount.toFixed(2), l.grossAmount.toFixed(2), l.rate.toFixed(4), l.inclusive]).toEqual(["90.00", "10.80", "90.00", "45.0000", true]);
+    expect([l.batchNo, l.expiryDate, l.mrp?.toFixed(2)]).toEqual(["B23", "2027-03-31", "56.00"]);
+  });
+
+  it("still requires an amount when neither form is given", () => {
+    expect(run(miniFiles({ vouchers: [sale({ amount_incl_tax: "" })] })).codes).toContain("error:INVALID_VALUE");
+  });
+
+  it("flags a sale above MRP and a sale after expiry, without rejecting the import", () => {
+    const { codes } = run(miniFiles({ vouchers: [sale({ amount_incl_tax: "123.20", expiry_date: "2026-03-31" })], controls: controls({ sales_taxable: "110.00", sales_tax: "13.20" }) }));
+    expect(codes.sort()).toEqual(["warning:ABOVE_MRP", "warning:SOLD_AFTER_EXPIRY"]);
+  });
+
+  it("requires opening batches to add up to the item's opening stock", () => {
+    const batches = (rows: string[]) => ({ [TEMPLATE_FILES.batches]: `item_code,batch_no,expiry_date,mfg_date,mrp,opening_qty,opening_value\r\n${rows.join("\r\n")}\r\n` });
+    const ok = run(miniFiles({ raw: batches(["NB-1,A1,2027-01-31,,,60,", "NB-1,A2,2027-06-30,,,40,"]) }));
+    expect(ok.codes).toEqual([]);
+    expect(ok.bundle.batches.map((b) => `${b.batchNo}:${b.openingQty.toFixed()}`)).toEqual(["A1:60", "A2:40"]);
+    expect(run(miniFiles({ raw: batches(["NB-1,A1,2027-01-31,,,60,"]) })).codes).toContain("error:BATCH_OPENING_MISMATCH");
+    expect(run(miniFiles({ raw: batches(["NB-1,A1,2027-01-31,2027-02-01,,100,"]) })).codes).toContain("error:INVALID_VALUE");
+  });
+
+  it("warns when the same batch is given two different expiry dates", () => {
+    const { codes } = run(
+      miniFiles({ vouchers: [sale(), sale({ line_no: "2", expiry_date: "2027-04-30" })], controls: controls({ sales_taxable: "180.00", sales_tax: "21.60" }) })
+    );
+    expect(codes).toEqual(["warning:BATCH_EXPIRY_CONFLICT"]);
+  });
+});

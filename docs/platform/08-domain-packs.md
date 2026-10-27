@@ -27,7 +27,29 @@ A pack is a typed TypeScript module (`src/domain/packs/<id>.ts`) implementing `D
   * **Stricter campaign rules** prove the policy layer is real, not decorative.
 * So the core gets **batch/expiry fields from M1** (optional, unused by stationery). Pharmacy then becomes a pack, not a migration.
 
-## 3. Pharmacy pack — known constraints (to verify with a domain/legal review before launch)
+## 3. Pharmacy pack — built in M12
+
+**Status: active.** It can be chosen when creating a business, and loaded as a demo (6 months or 2 years).
+
+**Not reviewed by a lawyer.** The constraints in §3.2 come from public sources, read by a non-lawyer. A qualified professional must review them before a real pharmacy relies on this product.
+
+### 3.1 What the pack adds, and what moved into the core
+
+| Part | Where | What it does |
+|---|---|---|
+| Batch import (core, optional) | template `vouchers.csv` columns `batch_no`, `expiry_date`, `mrp`; new optional `batches.csv` for opening stock by batch | Batches are stored per item and linked from voucher lines and stock movements. Checks: opening batches must add up to the item's opening stock; the same batch with two expiry dates is flagged; a sale after expiry or above MRP is flagged (warning). |
+| MRP-inclusive billing (core, optional) | `amount_incl_tax` column | GST is backed out of the tax-inclusive line total at `gst_rate`, with the same half-up rounding the generator uses. |
+| Expiry analytics (core) | `src/server/analytics/expiry.ts` | Stock per batch (issues without a batch are taken earliest-expiry first); expired, near-expiry and likely-unsold value (KPI dictionary C2). Shown on the Inventory page whenever the business has batches. |
+| Findings (core rules, pack thresholds) | `EXPIRED_STOCK`, `NEAR_EXPIRY_AT_RISK` | Value at cost, the batches, and measurable outcomes (expired stock on hand; value left in the at-risk batches). The suggested action never proposes promoting or discounting an item the pack says may not be promoted. |
+| Assistant | tool `expiry_risk` | Answers "what is expiring?" from the report. |
+| Pack config | `src/domain/packs/pharmacy.ts` | Item attributes (`productClass`, `schedule`, …), thresholds (slow 60 days, non-moving 120, near expiry 90), seasons, glossary. |
+| Campaign policy | pack `campaignPolicy` | `isPromotable()`: Schedule G/H/H1/X medicines may not be promoted. `generalOffersAllowed: false`: no campaign may carry an offer, because "x% off your next order" would also discount prescription medicines. Enforced in the campaign service (setting an offer, approving it, approving the send) and hidden in the editor. |
+| Health data | pack `sensitiveCustomerData: true` | The assistant and campaign wording never use a model server outside the local network for this business, even when `LLM_ALLOW_REMOTE=1`. |
+| Demo profile | `src/server/demo/profiles/pharmacy.ts` | A fictional Lucknow chemist with: <ul><li>counter sales billed at MRP;</li><li>regular patients on chronic medicines (about monthly);</li><li>clinics on credit;</li><li>home delivery paid online.</li></ul> Every purchase is a batch with an expiry date, and sales take the earliest unexpired batch. Planted problems: <ul><li>an oversized opening batch that expires partly unsold;</li><li>short-dated bulk buys;</li><li>patients who stop refilling;</li><li>margin erosion on chronic medicines;</li><li>slow-paying clinics;</li><li>stockouts.</li></ul> |
+
+**Core changes, stated plainly.** The acceptance criterion was "zero core changes". The core did gain batch import, expiry analytics, the two expiry rules and the two policy flags. They are generic: any batch-tracked trade gets them, and a business without batches sees no difference (the stationery suites are unchanged and pass). The pharmacy-specific part is configuration, a demo profile and tests.
+
+### 3.2 Known constraints (to verify with a domain/legal review before launch)
 
 | Area | Constraint | Product consequence |
 |---|---|---|

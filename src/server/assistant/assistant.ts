@@ -38,6 +38,7 @@ const ROUTES: [RegExp, string, Record<string, unknown>][] = [
   [/channel|amazon|meesho|blinkit|zepto|instamart|marketplace|fee|payout|fill rate/i, "channel_performance", {}],
   [/owe|receivable|overdue|outstanding|collect money/i, "receivables", {}],
   [/days to (pay|collect)|dso|dpo|cash cycle|take to pay/i, "cash_cycle", {}],
+  [/expir|batch|near.?expiry/i, "expiry_risk", {}],
   [/slow|dead stock|not moving|not selling|stuck stock/i, "slow_stock", {}],
   [/lapsing|gone quiet|stopped (buying|ordering)|lost customer|inactive customer/i, "customer_segments", { segment: "lapsing" }],
   [/(top|best|most profitable).*(product|item)|(product|item).*(profit|best)/i, "top_products", {}],

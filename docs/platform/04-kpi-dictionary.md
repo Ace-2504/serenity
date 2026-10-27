@@ -67,6 +67,16 @@ This is the authoritative definition list. The code registry (`src/server/metric
 | `reorder_point` | Reorder point | d̄ × L + z × σ_d × √L | demand history, lead time L | d̄, σ_d from daily demand over the trailing 90 days; L from supplier settings or the observed purchase-order gap (labelled); z = 1.65 (95 % service) by default. Intermittent demand (> 50 % zero days) → flagged as low-confidence |
 | `weeks_of_cover` | Weeks of cover | on-hand qty ÷ avg weekly units sold (trailing 12 weeks) | | |
 
+### C2. Batch and expiry (batch-tracked trades, e.g. pharmacy; built in M12)
+
+Stock by batch = units received into the batch − units issued from it (stock movements carrying the batch). Issues recorded **without** a batch are taken from the item's earliest-expiring batches first (FEFO). Batches are valued at the item's weighted-average unit cost: cost is pooled per item, the batch only says which packs are left. A batch may be sold up to and including its expiry date (the last day of the printed month).
+
+| ID | Metric | Formula | Required data | Notes |
+|---|---|---|---|---|
+| `expired_stock_value` | Expired stock | Σ batch units × WAC unit cost for batches with expiry < as-of date | batch numbers and expiry dates on purchase/sales lines or batches.csv | Cannot legally be sold; recovered only through distributor credit |
+| `near_expiry_value` | Near-expiry stock | Σ value of batches expiring within T_near days (pharmacy: 90) | as above | |
+| `expiry_at_risk_value` | Likely to expire unsold | Σ (units − expected sales before expiry) × WAC over batches expiring within T_near days (so it is part of near_expiry_value); expected sales = item's daily units sold over the last 90 days × days to expiry, consumed by earlier-expiring batches first | as above + sales history | **A projection**, labelled as such. Seasonality is ignored |
+
 ## D. Working capital
 
 | ID | Metric | Formula | Notes |

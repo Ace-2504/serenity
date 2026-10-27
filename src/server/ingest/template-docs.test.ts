@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { IssueLog } from "@/server/ingest/issues";
 import { parseBundle } from "@/server/ingest/parse";
-import { CHANNEL_CHARGE_COLUMNS, CONTROL_TOTAL_COLUMNS, CUSTOMER_ORDER_COLUMNS, ITEM_COLUMNS, OUTSTANDING_COLUMNS, PARTY_COLUMNS, SETTLEMENT_COLUMNS, STOCK_SUMMARY_COLUMNS, TEMPLATE_FILES, VOUCHER_COLUMNS } from "@/server/ingest/template";
+import { BATCH_COLUMNS, CHANNEL_CHARGE_COLUMNS, CONTROL_TOTAL_COLUMNS, CUSTOMER_ORDER_COLUMNS, ITEM_COLUMNS, OUTSTANDING_COLUMNS, PARTY_COLUMNS, SETTLEMENT_COLUMNS, STOCK_SUMMARY_COLUMNS, TEMPLATE_FILES, VOUCHER_COLUMNS } from "@/server/ingest/template";
 import { TEMPLATE_DOCS, TEMPLATE_EXAMPLES } from "@/server/ingest/template-docs";
 import { emptyKnown, validateBundle } from "@/server/ingest/validate";
 
@@ -14,6 +14,7 @@ const COLUMNS: Record<string, readonly string[]> = {
   [TEMPLATE_FILES.outstanding]: OUTSTANDING_COLUMNS,
   [TEMPLATE_FILES.channelCharges]: CHANNEL_CHARGE_COLUMNS,
   [TEMPLATE_FILES.customerOrders]: CUSTOMER_ORDER_COLUMNS,
+  [TEMPLATE_FILES.batches]: BATCH_COLUMNS,
   [TEMPLATE_FILES.controlTotals]: CONTROL_TOTAL_COLUMNS
 };
 
