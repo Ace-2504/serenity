@@ -19,8 +19,7 @@ const TINY = 400;
 let tenantId: string | undefined;
 
 async function seedTinyTenantStatistics() {
-  await prisma.$executeRawUnsafe(`ALTER TABLE "Voucher" SET (autovacuum_enabled = false)`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE "SourceRecord" SET (autovacuum_enabled = false)`);
+  await setAutovacuum(false);
   const g = `generate_series(1, ${TINY}) g`;
   await prisma.$transaction([
     prisma.$executeRawUnsafe(`INSERT INTO "Tenant" (id, name, "domainPack", "isDemo", "createdAt", "updatedAt") SELECT 'tiny' || g, 'tiny', 'stationery', true, now(), now() FROM ${g}`),
@@ -37,11 +36,25 @@ async function seedTinyTenantStatistics() {
   await prisma.tenant.deleteMany({ where: { id: { startsWith: "tiny" } } });
 }
 
+/** Table-level DDL waits for every open transaction on the table; bound the wait and say who held it. */
+async function setAutovacuum(enabled: boolean) {
+  for (const table of ["Voucher", "SourceRecord"]) {
+    const sql = enabled ? `ALTER TABLE "${table}" RESET (autovacuum_enabled)` : `ALTER TABLE "${table}" SET (autovacuum_enabled = false)`;
+    try {
+      await prisma.$transaction([prisma.$executeRawUnsafe(`SET LOCAL lock_timeout = '20s'`), prisma.$executeRawUnsafe(sql)]);
+    } catch (error) {
+      const holders = await prisma.$queryRawUnsafe(
+        `SELECT pid, state, now() - xact_start AS open_for, left(query, 120) AS query FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND xact_start IS NOT NULL`
+      );
+      throw new Error(`${sql} could not take its lock: ${(error as Error).message}; open transactions: ${JSON.stringify(holders)}`);
+    }
+  }
+}
+
 afterAll(async () => {
   await prisma.tenant.deleteMany({ where: { id: { startsWith: "tiny" } } });
   if (tenantId) await prisma.tenant.deleteMany({ where: { id: tenantId } });
-  await prisma.$executeRawUnsafe(`ALTER TABLE "Voucher" RESET (autovacuum_enabled)`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE "SourceRecord" RESET (autovacuum_enabled)`);
+  await setAutovacuum(true);
   await prisma.$disconnect();
 });
 

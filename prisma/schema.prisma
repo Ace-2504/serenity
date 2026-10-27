@@ -412,6 +412,10 @@ model Tenant {
   importFiles          ImportFile[]
   channelCharges       ChannelCharge[]
   customerOrderLines   CustomerOrderLine[]
+  modelVersions        ModelVersion[]
+  predictions          Prediction[]
+  forecastPoints       ForecastPoint[]
+  basketPairs          BasketPair[]
   billAllocations      BillAllocation[]
   findings             Finding[]
   findingOutcomes      FindingOutcome[]
@@ -994,4 +998,81 @@ model CustomerOrderLine {
   @@index([tenantId, partyId])
   @@index([tenantId, itemId])
   @@index([tenantId, channel, poDate])
+}
+
+/// One training run of one model for one business: what data it saw, how it scored against the
+/// baselines on held-out time windows, and whether the model or the baseline was shipped.
+model ModelVersion {
+  id          String          @id @default(uuid())
+  tenantId    String
+  model       String
+  codeVersion String
+  trainedAt   DateTime        @default(now())
+  dataCutoff  DateTime        @db.Date
+  dataHash    String
+  featureList Json            @default("[]")
+  metrics     Json
+  shipped     String
+  status      String          @default("active")
+  notes       String?
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  predictions Prediction[]
+  forecasts   ForecastPoint[]
+  basketPairs BasketPair[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, model, status])
+}
+
+/// A per-entity score from a shipped model or baseline (probabilistic; never mixed with ledger figures).
+model Prediction {
+  id             String       @id @default(uuid())
+  tenantId       String
+  modelVersionId String
+  entityType     String
+  entityId       String
+  asOf           DateTime     @db.Date
+  horizonDays    Int
+  score          Float
+  method         String
+  factors        Json         @default("[]")
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  modelVersion   ModelVersion @relation(fields: [modelVersionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, modelVersionId])
+  @@index([tenantId, entityType, entityId])
+}
+
+/// Weekly demand forecast per item from a shipped method.
+model ForecastPoint {
+  id             String       @id @default(uuid())
+  tenantId       String
+  modelVersionId String
+  itemId         String
+  weekStart      DateTime     @db.Date
+  qty            Float
+  method         String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  modelVersion   ModelVersion @relation(fields: [modelVersionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, modelVersionId])
+  @@index([tenantId, itemId])
+}
+
+/// Items bought together on the same invoice (association rules: support, confidence, lift).
+model BasketPair {
+  id             String       @id @default(uuid())
+  tenantId       String
+  modelVersionId String
+  itemId         String
+  partnerItemId  String
+  together       Int
+  support        Float
+  confidence     Float
+  lift           Float
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  modelVersion   ModelVersion @relation(fields: [modelVersionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, modelVersionId])
+  @@index([tenantId, itemId])
 }

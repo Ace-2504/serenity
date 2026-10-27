@@ -16,3 +16,8 @@ tsconfig.tsbuildinfo
 
 # Generated demo datasets (reproducible with npm run demo:generate)
 demo-data/
+
+# Python ML worker
+ml/.venv/
+__pycache__/
+.pytest_cache/

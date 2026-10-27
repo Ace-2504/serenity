@@ -37,6 +37,7 @@ export default async function BiLayout({ children }: { children: React.ReactNode
             { href: "/bi/inventory" as const, label: "Inventory" },
             { href: "/bi/customers" as const, label: "Customers" },
             { href: "/bi/cash" as const, label: "Cash" },
+            { href: "/bi/predictions" as const, label: "Predictions" },
             { href: "/bi/imports" as const, label: "Imports" },
             { href: "/bi/metrics" as const, label: "Definitions" }
           ].map((link) => (

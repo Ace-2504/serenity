@@ -119,11 +119,16 @@ Estimates and measured results are never summed together. All dates are data dat
 * **Running jobs.** By default the web process drains the queue after enqueueing. With `JOBS_MODE=worker`, the web process only enqueues and `npm run worker` processes. Polling a queued job also nudges the queue, so a frozen serverless function is recovered.
 * **API.** It returns `202 { jobId }`, and the UI polls `/api/bi/jobs/{id}` for progress.
 
-### 2.4 ML worker (`ml/`, Python)
+### 2.4 ML worker (`ml/`, Python) — built in M8
 
-* CLI entry points: `features`, `train`, `evaluate`, `predict`, run by cron or a job row.
-* It reads canonical tables through a read-only DB role and writes only to `ml_*` tables (`ModelVersion`, `Prediction`, `ForecastPoint`).
-* Model artefacts are versioned on disk (`ml/artifacts/<model>/<version>/`) with a `metadata.json` holding the training cutoff, feature list, metrics and data hash.
+* **Running it.** `python -m serenity_ml run --tenant <id> [--as-of DATE]` trains, backtests against baselines, and writes `ModelVersion` plus its outputs (`Prediction`, `ForecastPoint`, `BasketPair`) in one transaction. Earlier versions become `superseded`; their metrics stay, their outputs are removed. The app runs it as the `ml.run` job, from the Predictions page or after imports when `ML_AUTORUN=1`.
+* **Isolation.** The child process gets only `DATABASE_URL` and a minimal `PATH`. Every query filters by tenant. Its single JSON summary line carries metrics, never data values.
+* **No artefacts on disk.** Models are cheap to refit (about 10 s on the full demo), so each run refits from the ledger; the metrics, feature list, cutoff and data hash are stored on `ModelVersion`.
+* **Models:**
+  * **Repeat purchase (60 days).** Logistic regression on log-scaled RFM-style features, against three baselines (recency, RFM score, bought in the same season last year) over 3 held-out windows. Leakage is prevented by construction: features use only data up to the cutoff, and training label windows close before each test window. Tests cover both.
+  * **Weekly demand.** Six methods (naive, seasonal naive, 8-week average, SES, Croston, SBA) scored by MASE on 3 rolling origins with a 4-week horizon.
+  * **Basket pairs.** Support, confidence and lift; a statistic, not a model.
+* **Ship rule.** A model ships only if it beats the best baseline: by ≥ 0.01 mean AUC while winning most windows (repeat purchase), or by ≥ 2% mean MASE (demand). Otherwise the baseline ships, and the Predictions page says so.
 
 ### 2.5 Assistant (`src/server/assistant/`)
 

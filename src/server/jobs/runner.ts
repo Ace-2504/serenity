@@ -4,7 +4,8 @@ import { loadDemoData, type DemoSize } from "@/server/bi/demo";
 import { forTenant } from "@/server/db/tenant";
 import { measureOutcomes, refreshFindings } from "@/server/findings/engine";
 import { commitImport, ImportError } from "@/server/ingest/pipeline";
-import { claimJob, completeJob, failJob, requeueStale, setProgress, type JobType } from "@/server/jobs/queue";
+import { MlUnavailableError, runMlWorker } from "@/server/ml/worker";
+import { claimJob, completeJob, enqueueJob, failJob, requeueStale, setProgress, type JobType } from "@/server/jobs/queue";
 
 /**
  * Job handlers and the loop that runs them. JOBS_MODE=worker leaves jobs to `npm run worker`;
@@ -25,7 +26,8 @@ const STEP_LABELS: Record<string, string> = {
   snapshots: "Saving stock and outstanding snapshots",
   ledger: "Rebuilding the stock ledger",
   reconcile: "Reconciling totals",
-  findings: "Looking for problems and opportunities"
+  findings: "Looking for problems and opportunities",
+  ml: "Training and testing the prediction models"
 };
 
 type Handler = (job: Job, progress: (step: string) => void) => Promise<Prisma.InputJsonValue>;
@@ -35,6 +37,8 @@ async function afterDataChange(tenantId: string, progress: (step: string) => voi
   const db = forTenant(tenantId);
   const findings = await refreshFindings(db, tenantId);
   const outcomes = await measureOutcomes(db, tenantId);
+  // Models retrain after imports only when switched on, so imports never depend on Python being installed.
+  if (process.env.ML_AUTORUN === "1") await enqueueJob(tenantId, "ml.run", {}, { dedupeKey: "ml.run" });
   return { findings, outcomes };
 }
 
@@ -49,11 +53,15 @@ const HANDLERS: Record<JobType, Handler> = {
     const loaded = await loadDemoData(job.tenantId, size, userId, progress);
     return { ...loaded, ...(await afterDataChange(job.tenantId, progress)) } as Prisma.InputJsonValue;
   },
-  "findings.refresh": async (job, progress) => afterDataChange(job.tenantId, progress) as Promise<Prisma.InputJsonValue>
+  "findings.refresh": async (job, progress) => afterDataChange(job.tenantId, progress) as Promise<Prisma.InputJsonValue>,
+  "ml.run": async (job, progress) => {
+    progress("ml");
+    return (await runMlWorker(job.tenantId)) as Prisma.InputJsonValue;
+  }
 };
 
-/** Data errors (failed validation, reconciliation) will fail again; anything else may be transient. */
-const isRetryable = (error: unknown) => !(error instanceof ImportError);
+/** Data errors (failed validation, reconciliation) and a missing ML install will fail again; anything else may be transient. */
+const isRetryable = (error: unknown) => !(error instanceof ImportError || error instanceof MlUnavailableError);
 
 export async function runJob(job: Job): Promise<void> {
   const handler = HANDLERS[job.type as JobType];

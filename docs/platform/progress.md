@@ -489,3 +489,59 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 * Period-level fees (storage, ads) are reported, not allocated to orders.
 * Meesho's GST/TCS ZIP and quick-commerce debit notes have no adapter yet. Debit notes can go through the template as channel charges.
 * Payout lag uses the first settlement that touched the order; later adjustments are ignored.
+
+---
+
+## M8 — ML layer (Python worker, honest baselines)
+
+**What was built**
+* **Package.** `ml/serenity_ml` with pinned dependencies (`ml/requirements.txt`: numpy 2.5.3, pandas 3.0.6, scikit-learn 1.9.1, psycopg 3.3.6, pytest 9.1.1) and an isolated venv at `ml/.venv`.
+* **Repeat purchase** (`repeat.py`):
+  * logistic regression on 8 features vs 3 baselines (recency, RFM, same season last year) over 3 held-out 60-day windows;
+  * metrics: AUC, average precision, Brier, top-decile lift;
+  * baselines are ranked on raw scores and calibrated with increasing isotonic regression, so a baseline's order is never reversed (a logistic calibrator did reverse one — caught by a test);
+  * per-customer reasons from the model's largest feature contributions.
+* **Demand forecast** (`forecast.py`):
+  * six methods scored by MASE (3 rolling origins × 4 weeks);
+  * forecasts for the next 8 full weeks after the cutoff, for products sold in the last year.
+* **Basket pairs** (`basket.py`): lift, confidence and support for pairs seen together on ≥ 5 invoices.
+* **Registry** (`registry.py`): `ModelVersion`, `Prediction`, `ForecastPoint` and `BasketPair` (migration `ml_registry`), with supersession and data hash.
+* **App:**
+  * the `ml.run` job runs the worker with a minimal environment;
+  * `POST /api/bi/ml/run`;
+  * `/bi/predictions` shows, per model, the method in use and why, the backtest table against baselines, valuable customers unlikely to order with their reasons, products likely to run out within three weeks, and items bought together.
+* **CI** installs the Python environment, runs pytest, then the TypeScript integration tests (which spawn the worker).
+
+**Results on the full two-year demo** (as of 30 Sep 2026; 10.5 s per run)
+
+| Repeat purchase, 60 days | Mean AUC | Brier | Top-decile lift |
+|---|---|---|---|
+| Model (logistic regression) | 0.806 | 0.167 | 1.91× |
+| **RFM score (shipped)** | **0.800** | **0.167** | **1.91×** |
+| Same season last year | 0.779 | 0.183 | 1.89× |
+| Recency | 0.755 | 0.198 | 1.70× |
+
+* **Repeat purchase.** The model's gain (+0.006 AUC) is below the 0.01 bar, so the RFM baseline ships and the page says so. On synthetic data with strong individual buying cycles (tests), the model wins (AUC 0.94–0.96 vs 0.90–0.93) and ships.
+* **Demand.** Seasonal naive has the best mean MASE (0.720) of the six methods (SES 0.725, Croston 0.816), so the baseline ships. This is common for intermittent demand with yearly seasonality and is reported, not hidden.
+
+**Tests (actual results)**
+```
+pytest (ml/)        16 passed
+npm test            16 files, 124 tests passed
+npm run test:int    10 files, 86 tests passed (ML worker: 4; 370-430 s)
+```
+* **Leakage:** features at a cutoff are identical with or without later data, and unchanged when later data is rewritten; every training label window closes before its test fold; anonymous buyers are never scored; the label window is exact.
+* **Ship rule:** the baseline ships on a small gain, and on a win that is only on average; the model ships on a clear win.
+* **Hand-computed values:** Croston and SBA; seasonal naive; the MASE scale; the last full week; basket lift 1.25 and support 0.6.
+* **End to end against Postgres:**
+  * three active versions are written;
+  * the recorded ship decision follows the recorded metrics;
+  * every named customer of this business is scored and no other business is touched;
+  * forecasts start after the cutoff, are non-negative and use the shipped method;
+  * a second run supersedes the first, with no mixed outputs.
+
+**Known limitations**
+* No hyperparameter search and no gradient-boosted model yet. The current model is deliberately simple, and the baselines already capture most of the signal in this data.
+* Demand forecasts are point forecasts, without intervals; promotions, prices and stockouts are not modelled (lost demand during stockouts lowers the history).
+* The "products likely to run out" list ignores open purchase orders to suppliers, which the books don't hold.
+* Predictions are not yet turned into findings or campaign audiences; that is M9.

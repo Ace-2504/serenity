@@ -34,4 +34,12 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: ML worker (Python) environment and tests
+        run: |
+          python -m venv ml/.venv
+          ml/.venv/bin/pip install -q -r ml/requirements.txt
+          cd ml && .venv/bin/python -m pytest -q
       - run: npm run test:int
