@@ -81,6 +81,7 @@ model User {
   bulkRequests BulkRequest[]
   userRoles    UserRole[]
   cart         Cart?
+  memberships  Membership[]
 }
 
 model Role {
@@ -300,4 +301,450 @@ model Payment {
 
   @@index([providerOrderId])
   @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operations-intelligence platform: canonical, tenant-scoped ledger.
+// Design: docs/platform/03-data-model.md. Storefront models above are unchanged.
+//
+// Conventions:
+//   * Money Decimal(18,2) INR, excluding GST unless the name says InclTax.
+//   * Quantities Decimal(18,3) in the item's base unit.
+//   * Links between tenant tables use composite (id, tenantId) foreign keys, so the
+//     database itself rejects a row pointing at another tenant's data. Optional links
+//     use onDelete Restrict/Cascade, never SetNull (which would null tenantId too).
+//   * Every imported entity points at the SourceRecord it came from (lineage).
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum MembershipRole {
+  owner_admin
+  accountant
+  analyst
+}
+
+enum DataSourceKind {
+  demo
+  csv_template
+  storefront
+  tally_xml
+  tally_http
+  busy_excel
+}
+
+enum ImportStatus {
+  staged
+  validated
+  committed
+  failed
+  rejected
+}
+
+enum IssueSeverity {
+  error
+  warning
+  info
+}
+
+enum PartyKind {
+  customer
+  supplier
+  both
+}
+
+enum VoucherType {
+  sales_invoice
+  sales_return
+  purchase_invoice
+  purchase_return
+  receipt
+  payment
+  stock_adjustment
+  opening_stock
+}
+
+enum VoucherStatus {
+  active
+  cancelled
+  superseded
+  deleted_at_source
+}
+
+enum CostBasis {
+  source_provided
+  derived_wac
+  unknown
+}
+
+enum OutstandingSide {
+  receivable
+  payable
+}
+
+model Tenant {
+  id                   String                @id @default(uuid())
+  name                 String
+  /// Domain pack id, e.g. "stationery" or "pharmacy" (src/domain/packs).
+  domainPack           String
+  gstin                String?
+  stateCode            String?
+  /// Indian financial year starts in April.
+  fyStartMonth         Int                   @default(4)
+  isDemo               Boolean               @default(false)
+  settings             Json                  @default("{}")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  memberships          Membership[]
+  dataSources          DataSource[]
+  importBatches        ImportBatch[]
+  importIssues         ImportIssue[]
+  sourceRecords        SourceRecord[]
+  parties              Party[]
+  itemGroups           ItemGroup[]
+  items                Item[]
+  batches              Batch[]
+  vouchers             Voucher[]
+  voucherLines         VoucherLine[]
+  stockMovements       StockMovement[]
+  stockSnapshots       StockSnapshot[]
+  outstandingSnapshots OutstandingSnapshot[]
+  auditLogs            AuditLog[]
+}
+
+model Membership {
+  id        String         @id @default(uuid())
+  tenantId  String
+  userId    String
+  role      MembershipRole
+  createdAt DateTime       @default(now())
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+}
+
+model DataSource {
+  id                   String         @id @default(uuid())
+  tenantId             String
+  kind                 DataSourceKind
+  name                 String
+  isDemo               Boolean        @default(false)
+  /// { hasCost, hasBillwise, hasStockSnapshot, incremental } as declared by the adapter.
+  capabilities         Json           @default("{}")
+  /// Adapter-specific incremental cursor, e.g. Tally AlterIDs.
+  cursor               Json?
+  lastSuccessfulSyncAt DateTime?
+  createdAt            DateTime       @default(now())
+  tenant               Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  importBatches        ImportBatch[]
+  sourceRecords        SourceRecord[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+}
+
+model ImportBatch {
+  id             String         @id @default(uuid())
+  tenantId       String
+  dataSourceId   String
+  status         ImportStatus   @default(staged)
+  fileName       String?
+  fileSha256     String?
+  periodFrom     DateTime?      @db.Date
+  periodTo       DateTime?      @db.Date
+  counts         Json           @default("{}")
+  controlTotals  Json?
+  reconciliation Json?
+  error          String?
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  committedAt    DateTime?
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dataSource     DataSource     @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  issues         ImportIssue[]
+  sourceRecords  SourceRecord[]
+
+  @@unique([id, tenantId])
+  @@unique([dataSourceId, fileSha256])
+  @@index([tenantId, createdAt])
+}
+
+model ImportIssue {
+  id            String        @id @default(uuid())
+  tenantId      String
+  importBatchId String
+  severity      IssueSeverity
+  code          String
+  entity        String
+  rowRef        String?
+  field         String?
+  message       String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  importBatch   ImportBatch   @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, importBatchId])
+}
+
+/// Raw source payload, versioned. Same sourceKey with a different contentHash is a
+/// correction: a new version is written and the previous one is superseded.
+model SourceRecord {
+  id            String      @id @default(uuid())
+  tenantId      String
+  dataSourceId  String
+  importBatchId String
+  entity        String
+  sourceKey     String
+  version       Int
+  contentHash   String
+  payload       Json
+  supersededAt  DateTime?
+  createdAt     DateTime    @default(now())
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dataSource    DataSource  @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  importBatch   ImportBatch @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  parties       Party[]
+  items         Item[]
+  vouchers      Voucher[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, dataSourceId, entity, sourceKey, version])
+  @@index([tenantId, dataSourceId, entity, sourceKey])
+}
+
+model Party {
+  id             String                @id @default(uuid())
+  tenantId       String
+  dataSourceId   String
+  sourceKey      String
+  sourceRecordId String
+  name           String
+  kind           PartyKind
+  /// Walk-in / cash parties are excluded from customer analytics.
+  isWalkIn       Boolean               @default(false)
+  gstin          String?
+  stateCode      String?
+  city           String?
+  segmentTag     String?
+  creditDays     Int?
+  phone          String?
+  email          String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord   SourceRecord          @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  vouchers       Voucher[]
+  outstanding    OutstandingSnapshot[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, dataSourceId, sourceKey])
+  @@index([tenantId, kind])
+}
+
+model ItemGroup {
+  id       String  @id @default(uuid())
+  tenantId String
+  name     String
+  parentId String?
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items    Item[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, name])
+}
+
+model Item {
+  id             String          @id @default(uuid())
+  tenantId       String
+  dataSourceId   String
+  sourceKey      String
+  sourceRecordId String
+  sku            String?
+  name           String
+  itemGroupId    String?
+  uom            String
+  hsnCode        String?
+  gstRate        Decimal?        @db.Decimal(5, 2)
+  isActive       Boolean         @default(true)
+  tracksBatches  Boolean         @default(false)
+  /// Trade-specific attributes, validated by the tenant's domain pack.
+  attributes     Json            @default("{}")
+  /// Optional link to the storefront variant selling the same SKU online.
+  variantId      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord   SourceRecord    @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  itemGroup      ItemGroup?      @relation(fields: [itemGroupId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  batches        Batch[]
+  voucherLines   VoucherLine[]
+  stockMovements StockMovement[]
+  stockSnapshots StockSnapshot[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, dataSourceId, sourceKey])
+  @@index([tenantId, itemGroupId])
+}
+
+model Batch {
+  id             String          @id @default(uuid())
+  tenantId       String
+  itemId         String
+  batchNo        String
+  mfgDate        DateTime?       @db.Date
+  expiryDate     DateTime?       @db.Date
+  mrp            Decimal?        @db.Decimal(18, 2)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item           Item            @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  voucherLines   VoucherLine[]
+  stockMovements StockMovement[]
+  stockSnapshots StockSnapshot[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, itemId, batchNo])
+  @@index([tenantId, expiryDate])
+}
+
+model Voucher {
+  id                String        @id @default(uuid())
+  tenantId          String
+  dataSourceId      String
+  sourceKey         String
+  sourceVersion     Int           @default(1)
+  sourceRecordId    String
+  type              VoucherType
+  number            String
+  date              DateTime      @db.Date
+  partyId           String?
+  dueDate           DateTime?     @db.Date
+  channel           String?
+  /// Header totals as stated by the source; kept for reconciliation against lines.
+  grossAmount       Decimal       @db.Decimal(18, 2)
+  discountAmount    Decimal       @default(0) @db.Decimal(18, 2)
+  taxableAmount     Decimal       @db.Decimal(18, 2)
+  taxAmount         Decimal       @default(0) @db.Decimal(18, 2)
+  roundOff          Decimal       @default(0) @db.Decimal(18, 2)
+  totalInclTax      Decimal       @db.Decimal(18, 2)
+  status            VoucherStatus @default(active)
+  originalVoucherId String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord      SourceRecord  @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  party             Party?        @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  lines             VoucherLine[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, dataSourceId, sourceKey])
+  @@index([tenantId, type, date])
+  @@index([tenantId, partyId, date])
+}
+
+model VoucherLine {
+  id             String          @id @default(uuid())
+  tenantId       String
+  voucherId      String
+  lineNo         Int
+  itemId         String
+  batchId        String?
+  qty            Decimal         @db.Decimal(18, 3)
+  rate           Decimal         @db.Decimal(18, 4)
+  /// qty x rate
+  grossAmount    Decimal         @db.Decimal(18, 2)
+  /// Line discount plus pro-rata share of any invoice-level discount.
+  discountAmount Decimal         @default(0) @db.Decimal(18, 2)
+  taxableAmount  Decimal         @db.Decimal(18, 2)
+  taxRate        Decimal         @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal         @default(0) @db.Decimal(18, 2)
+  /// Cost of the quantity on this line; null until known. Never defaulted to zero.
+  costAmount     Decimal?        @db.Decimal(18, 2)
+  costBasis      CostBasis       @default(unknown)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  voucher        Voucher         @relation(fields: [voucherId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  item           Item            @relation(fields: [itemId, tenantId], references: [id, tenantId])
+  batch          Batch?          @relation(fields: [batchId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  stockMovements StockMovement[]
+
+  @@unique([id, tenantId])
+  @@unique([voucherId, lineNo])
+  @@index([tenantId, itemId])
+}
+
+/// Perpetual stock ledger derived from vouchers on commit (weighted-average cost).
+model StockMovement {
+  id            String       @id @default(uuid())
+  tenantId      String
+  itemId        String
+  batchId       String?
+  voucherLineId String?
+  date          DateTime     @db.Date
+  seq           Int
+  qtyIn         Decimal      @default(0) @db.Decimal(18, 3)
+  qtyOut        Decimal      @default(0) @db.Decimal(18, 3)
+  unitCost      Decimal?     @db.Decimal(18, 4)
+  valueIn       Decimal?     @db.Decimal(18, 2)
+  valueOut      Decimal?     @db.Decimal(18, 2)
+  runningQty    Decimal      @db.Decimal(18, 3)
+  runningValue  Decimal?     @db.Decimal(18, 2)
+  reason        String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item          Item         @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  batch         Batch?       @relation(fields: [batchId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  voucherLine   VoucherLine? @relation(fields: [voucherLineId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([tenantId, itemId, seq])
+  @@index([tenantId, itemId, date])
+}
+
+/// Closing stock as reported by the source system (used to reconcile the derived ledger).
+model StockSnapshot {
+  id              String   @id @default(uuid())
+  tenantId        String
+  itemId          String
+  batchId         String?
+  dataSourceId    String
+  asOf            DateTime @db.Date
+  qty             Decimal  @db.Decimal(18, 3)
+  value           Decimal? @db.Decimal(18, 2)
+  valuationMethod String?
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item            Item     @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  batch           Batch?   @relation(fields: [batchId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@index([tenantId, asOf])
+  @@index([tenantId, itemId, asOf])
+}
+
+/// Bill-wise receivables / payables as reported by the source at a point in time.
+model OutstandingSnapshot {
+  id             String          @id @default(uuid())
+  tenantId       String
+  partyId        String
+  dataSourceId   String
+  side           OutstandingSide
+  billRef        String
+  billDate       DateTime        @db.Date
+  dueDate        DateTime?       @db.Date
+  amountInclTax  Decimal         @db.Decimal(18, 2)
+  pendingInclTax Decimal         @db.Decimal(18, 2)
+  asOf           DateTime        @db.Date
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  party          Party           @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, side, asOf])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  actorUserId String?
+  action      String
+  entity      String
+  entityId    String?
+  before      Json?
+  after       Json?
+  requestId   String?
+  at          DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, at])
 }

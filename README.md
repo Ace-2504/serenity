@@ -1,5 +1,7 @@
 # Stationery Webapp MVP
 
+> **In progress:** this storefront is being extended into an operations-intelligence platform for Indian trading SMEs (profitability, inventory, working capital, customer analytics). Plan and milestone log: [`docs/platform/`](docs/platform/README.md).
+
 Phase 5 implementation scaffold for the stationery ecommerce project.
 
 ## Included In This Starter
@@ -53,6 +55,11 @@ npm run dev
 
 1. URL: `/admin/login`
 2. Default credentials come from `.env` values for `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+
+## Tests
+
+1. Unit tests: `npm test`.
+2. Integration tests need a separate PostgreSQL database: set `TEST_DATABASE_URL` (see `.env.example`), then `npm run test:int`. Migrations are applied automatically; tests create and delete their own tenants.
 
 ## Payment Integration (Razorpay)
 
