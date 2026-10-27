@@ -14,7 +14,7 @@ The brief's phases are kept, with two changes:
 | # | Milestone | Depends on | Acceptance criteria |
 |---|---|---|---|
 | **M0** | Audit, spec, architecture, model, KPI dictionary, roadmap, risks (this folder) | — | Docs reviewed by owner; candidate choice confirmed |
-| **M1** | **Foundation**: `Tenant`/`Membership`, canonical ledger tables + migration, `forTenant` data-access helper, auth debt fixes 1–3, Zod, metric registry skeleton | M0 | Migration applies on a fresh DB and on a DB with existing storefront data; two-tenant isolation test passes; session expiry test passes |
+| **M1** | **Foundation**: `Tenant`/`Membership`, canonical ledger tables (incl. optional `Batch`) + migration, `DomainPack` interface with stationery + pharmacy stubs, `forTenant` data-access helper, auth debt fixes 1–3, Zod, metric registry skeleton | M0 | Migration applies on a fresh DB and on a DB with existing storefront data; two-tenant isolation test passes; session expiry test passes |
 | **M2** | **Synthetic data generator** (fictional distributor, 2 FY, ~250 SKUs, ~400 customers, ~60 suppliers, seasonality, credit terms, returns, discounts, slow movers, two lapsing key accounts) | M1 | Generator is deterministic for a seed; invariants (stock ≥ 0, receipts ≤ invoices, returns reference real sales, ledger balances) are asserted by tests; dataset labelled DEMO |
 | **M3** | **CSV/Excel import pipeline**: template (`.xlsx` + CSV), staging, validation report, idempotent commit, file-hash dedup, corrections (versioning), reconciliation vs control totals, import UI with preview | M1, M2 (generator also emits the template format) | Re-import is a no-op; corrupt rows produce row-level issues and block commit; interrupted commit leaves no partial data; control totals reconcile within ₹1 |
 | **M4** | **Tally XML file adapter** (exported Day Book / vouchers / masters / stock summary / bills outstanding) on documented-format fixtures | M3 | Fixture vouchers map to canonical; Tally GUID/AlterID kept as source keys; malformed XML (bad entities, truncation) produces issues, not crashes. Labelled "verified on fixtures only" |
@@ -25,6 +25,7 @@ The brief's phases are kept, with two changes:
 | **M9** | **Local LLM assistant + campaigns**: tool registry, numeric guard, assistant logs; campaign drafts, approval state machine, consent, holdout, `outbox` channel; SMTP adapter | M7, M8 | Guard test suite (answers with altered numbers are rejected); sends impossible without owner approval and consent; holdout excluded from sends |
 | **M10** | **Live Tally sync** (HTTP XML on LAN, incremental via AlterID) + **BUSY Excel adapter** | M4 | Verified against a real TallyPrime instance (needs owner access), or stays labelled unverified |
 | **M11** | **Hardening & demo**: RLS, rate limits, backups doc, Docker Compose (app + Postgres + worker + Ollama), observability page, scripted end-to-end demo, Playwright E2E | all | Fresh clone → `docker compose up` → demo flow works; E2E passes |
+| **M12** | **Pharmacy domain pack**: batch/expiry ageing (FEFO), near-expiry findings, MRP-inclusive import, pharmacy generator profile, campaign policy excluding scheduled drugs | M11 | Generic suite passes on pharmacy data with zero core changes; pack-specific tests pass; legal/policy notes reviewed |
 
 ## The first vertical slice (proposed next work: M1 → M3 → part of M5)
 

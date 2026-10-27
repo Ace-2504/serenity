@@ -9,7 +9,8 @@ Tenant ─┬─ Membership ── User (existing)
         ├─ DataSource ─── ImportBatch ─┬─ ImportIssue
         │                              └─ SourceRecord (raw payload, hash)  ◀── lineage for every canonical row
         ├─ Party (customer | supplier | both)
-        ├─ ItemGroup ── Item ── (optional link) ProductVariant (storefront)
+        ├─ ItemGroup ── Item ─┬─ Batch (optional: batch no, expiry)
+        │                    └─ (optional link) ProductVariant (storefront)
         ├─ Voucher ── VoucherLine ── StockMovement
         │     └─ BillAllocation (receipt/payment ↔ invoice)
         ├─ StockSnapshot        (source-reported closing qty/value as of date)
@@ -47,9 +48,12 @@ Tenant ─┬─ Membership ── User (existing)
 * Unique: `(tenantId, dataSourceId, sourceKey)`.
 * Cross-source identity (the same customer in Tally and the storefront) uses a `PartyLink` table. Matching on GSTIN, then phone, is suggested to the user and **never auto-merged**.
 
-### ItemGroup / Item
-`Item: id, tenantId, sourceKey, sku?, name, itemGroupId?, uom, hsnCode?, gstRate?, isActive, variantId?`
+### ItemGroup / Item / Batch
+`Item: id, tenantId, sourceKey, sku?, name, itemGroupId?, uom, hsnCode?, gstRate?, isActive, tracksBatches, attributes (Json), variantId?`
+* `attributes` is validated by the tenant's domain pack (`08-domain-packs.md`). For example, pharmacy carries `composition` and `schedule`; stationery carries `brand`.
 * `variantId` links to a storefront `ProductVariant` when the same SKU is sold online.
+
+`Batch: id, tenantId, itemId, batchNo, mfgDate?, expiryDate?, mrp?`. Optional, used when `Item.tracksBatches`. Unique `(tenantId, itemId, batchNo)`. `VoucherLine`, `StockMovement` and `StockSnapshot` carry an optional `batchId`. Stationery leaves it null; pharmacy requires it.
 
 ### Voucher (document header)
 | Field | Notes |
