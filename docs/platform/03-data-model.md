@@ -86,6 +86,13 @@ Tenant ─┬─ Membership ── User (existing)
 * `StockSnapshot(itemId, asOf, qty, value?, valuationMethod?)` comes from Tally Stock Summary or the template. Used to **reconcile** our derived ledger (variance shown) and as the authoritative closing value when the source provides it.
 * `OutstandingSnapshot(partyId, side: receivable|payable, billRef, billDate, dueDate?, amountInclTax, pendingInclTax, asOf)` comes from bill-wise outstanding reports. Used for AR/AP ageing.
 
+### ChannelCharge (added with the M3 import migration)
+Line-level deductions a channel makes from its payouts, from marketplace settlement reports or gateway statements. Fields follow `07-integration-research.md`:
+`channel, settlementRef, periodFrom?, periodTo?, payoutDate, postedDate?, status (deferred|released), orderRef?, voucherId?, sku?, qty?, eventType (sale|refund|return|rto|cancel|reimbursement|ads|storage|adjustment), chargeType (normalised) + rawLabel, amount (signed), gstOnCharge, isTaxWithheld, allocationBasis?, sourceRecordId`.
+* `isTaxWithheld` (GST TCS, income-tax TDS) marks claimable credits. They affect cash, never contribution.
+* Period-level lines (e.g. Amazon TDS, storage, penalties) have no order. They are allocated to orders by a recorded `allocationBasis` (default: share of order value in the period).
+* `Voucher.channel` holds the channel id; `Voucher.orderRef` holds the platform order id that joins vouchers to charges.
+
 ### BillAllocation
 `(paymentVoucherId, invoiceVoucherId, amount)`: receipts and payments allocated against bills when the source has bill-wise detail. When absent, ageing uses FIFO allocation (oldest bill first), labelled as an assumption.
 

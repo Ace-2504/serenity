@@ -50,3 +50,18 @@ Confidence: **H** = read in full / confirmed in working code · **M** = official
 | Ollama | `/v1/chat/completions` (OpenAI-compatible) supports `tools` and `response_format`, **not `tool_choice`**. Native `/api/chat` accepts a JSON-schema `format` | H |
 
 Design consequence: because forced tool choice is unavailable, the assistant cannot force a tool call. It validates the model's reply: no tool call for a numeric question → retry once with a stricter system prompt → fall back to "I couldn't map that to an approved report" plus a list of supported questions.
+
+## Marketplaces and quick commerce (researched 2026-10-27)
+
+Same method and limits as above. The official seller sites were unreachable from the research sandbox. Amazon's own SP-API model files on GitHub were read in full (H). Other claims come from official-page excerpts (M) or third parties (L).
+
+| Platform | Data access | Key facts for the cost model | Conf. |
+|---|---|---|---|
+| **Amazon.in** | SP-API: Orders; Finances v0 `listFinancialEvents` (per-item principal, tax, **TCS lines**, fees, refunds; one event group per settlement); Settlement Report V2 flat file (Amazon-generated, 90-day availability). Private apps need self-authorisation; a product for many sellers needs public-developer registration. Buyer PII needs restricted roles + Restricted Data Tokens. **We need neither.** | Fee components: referral, closing, weight-handling/shipping, FBA, refund administration. Referral fee for stationery under ₹1,000 shown as 0% (zero-referral expansion from Mar 2026). Payout ~7 days after delivery on a 7/14-day cycle: read actual dates from data. **TDS reported per period** (TaxWithholdingEvent), TCS per item | H (API) / M (fees) |
+| **Meesho** | No public supplier API found. Panel exports: payments download; GST ZIP (`tcs_sales.xlsx`, `tcs_sales_return.xlsx`) after the 5th of next month; deductions/penalties section | 0% commission; seller pays zone/weight shipping and customer-return shipping; RTO no fee; paid ~7 days after delivery (one official page says 15) | M / L |
+| **Blinkit** | Seller Hub; no official export/API docs found | **Inventory-led since 1 Sep 2025:** Blinkit's entity buys stock against POs, so it is a **B2B sale**. Buy price, terms not public. Fill-rate debits for short supply | L / M |
+| Zepto / Instamart | Zepto Atom is a paid dashboard (no API); Instamart wholesale-style | Zepto pays suppliers in 30–60 days | L |
+
+**Tax withheld by e-commerce operators:** GST TCS **0.5%** of net taxable supplies (s.52 CGST; Notification 15/2024-CT from 10 Jul 2024). Income-tax TDS **0.1%** under s.194-O from 1 Oct 2024 (s.393(1) of the Income-tax Act 2025 from 1 Apr 2026, L). Both are tax credits, not costs. Several 2026 blogs still quote 1%; they are out of date.
+
+**Decision:** file upload first (Amazon Settlement V2, Meesho payments + GST ZIP, Blinkit PO/GRN/debit notes) via adapters that map to canonical vouchers + `ChannelCharge`. Amazon SP-API comes second, using only Finance & Accounting and Inventory & Order Tracking roles (no PII). Quick commerce is modelled as a B2B customer with fill rate, not as a marketplace.

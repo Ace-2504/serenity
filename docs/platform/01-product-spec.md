@@ -6,6 +6,17 @@ Working name: **Serenity BI**, operations intelligence for Indian trading SMEs.
 
 **Primary persona: owner of a stationery / school-supplies distributor.** Turnover is roughly ₹2–25 crore, with 300–3,000 active SKUs and 100–2,000 B2B customers (retailers, schools, offices). Books are kept in TallyPrime or BUSY by an in-house accountant or an external CA. The owner reads reports in Tally but doesn't build them, and decides purchasing, credit and discounts on instinct.
 
+**Sales channels (B2B and B2C).** The same business typically sells through several channels at once, and the product treats each as a first-class dimension:
+
+| Channel | Examples | Economics the product must capture |
+|---|---|---|
+| Direct B2B | schools, retailers, offices | credit terms, bulk orders, receivables |
+| Quick commerce | Blinkit (inventory-led since Sep 2025), Zepto, Instamart | B2B sale to the platform against purchase orders; fill rate; payment terms |
+| Marketplace B2C | Amazon.in, Meesho | per-order fees, shipping, returns/RTO, payouts net of fees, TCS/TDS withheld |
+| Own B2C | Serenity storefront, shop counter | payment-gateway fees, cash |
+
+Channel fees and returns are what turn gross profit into **contribution**, so "which SKUs lose money on which channel" is a core question, not an add-on.
+
 **Secondary persona: accountant / operations manager.** Runs the imports, resolves validation errors and owns data quality.
 
 **Initial vertical:** stationery and school supplies, because of strong seasonality (back-to-school, exam season, Diwali), many SKUs, B2B credit sales and slow-moving stock risk. The model is not stationery-specific. Electrical and hardware wholesale has the same shape.

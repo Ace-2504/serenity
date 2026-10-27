@@ -24,6 +24,8 @@ This is the authoritative definition list. The code registry (`src/server/metric
 | `gross_margin_pct` | Gross margin % | gross_profit ÷ net_sales (known-cost lines) | % | — | |
 | `contribution` | Contribution | gross_profit − variable selling costs (freight-out, payment/marketplace fees, sales commission) | ₹ | **mapped expense ledgers** | `unavailable` until variable-cost ledgers are mapped. The UI then shows gross profit, labelled as such, and **never calls it contribution** |
 | `contribution_margin_pct` | Contribution margin % | contribution ÷ net_sales | % | as above | |
+| `channel_charges` | Channel charges | Σ ChannelCharge.amount where not tax-withheld, allocated to orders/lines by order-value share | ₹ | settlement reports | GST on fees excluded (input credit for a registered seller); TCS/TDS excluded (tax credits) |
+| `channel_contribution` | Contribution by channel / SKU | net_sales − cogs − channel_charges (− freight-out where mapped) | ₹ | as above | Available per channel as soon as that channel's charges are imported; otherwise `unavailable` for that channel |
 | `operating_profit` | Operating profit | contribution − fixed operating expenses | ₹ | all indirect expense ledgers | Out of MVP scope; shown as `unavailable` |
 | `discount_rate` | Discount rate | discounts ÷ gross_sales | % | | |
 | `return_rate` | Return rate | sales_returns ÷ (net_sales + sales_returns) | % | | Value-based |
@@ -43,6 +45,8 @@ This is the authoritative definition list. The code registry (`src/server/metric
 | `hhi_customers` | Herfindahl index | Σ (customer share)² × 10,000 | > 2,500 = highly concentrated (convention borrowed from antitrust) |
 | `discounted_order_share` | Discounted-order share | invoices with discount > 0 ÷ invoice_count | |
 | `basket_pair_lift` | Pair lift | P(A∧B) ÷ (P(A)·P(B)) over invoices | Reported only with support ≥ configured minimum (default 20 invoices) |
+| `fill_rate` | Fill rate (quick commerce / B2B POs) | units supplied ÷ units ordered on purchase orders | Needs PO quantities from the platform (PO/GRN exports); `unavailable` from invoices alone |
+| `payout_lag_days` | Marketplace payout lag | mean(payout date − order date), by channel | From settlement reports; actual dates, not assumed cycles |
 
 ## C. Inventory
 
