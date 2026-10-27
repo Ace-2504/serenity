@@ -45,6 +45,8 @@ This is the authoritative definition list. The code registry (`src/server/metric
 | `hhi_customers` | Herfindahl index | Σ (customer share)² × 10,000 | > 2,500 = highly concentrated (convention borrowed from antitrust) |
 | `discounted_order_share` | Discounted-order share | invoices with discount > 0 ÷ invoice_count | |
 | `basket_pair_lift` | Pair lift | P(A∧B) ÷ (P(A)·P(B)) over invoices | Reported only with support ≥ configured minimum (default 20 invoices) |
+| `rfm_segment` | Customer segment | Quintile scores (5 = best) for recency, frequency (invoices in 365 days) and monetary (net sales in 365 days) among named customers active in 2 years; mapped to Champions / Loyal / New / Steady / Lapsing / At risk / Inactive | Rules in `src/server/analytics/customers.ts`; anonymous buyers (counter, marketplaces) excluded |
+| `lapsing_customer` | Lapsing customer | 3+ orders, lifetime value in the top 60%, silent > max(30 days, 2 × median gap), and ≥ 1.5 orders expected since the silence became unusual (from the customer's own purchases per calendar month) | Season-aware: a school in its usual off-season is not lapsing; one that skipped a season is |
 | `fill_rate` | Fill rate (quick commerce / B2B POs) | units supplied ÷ units ordered on purchase orders | Needs PO quantities from the platform (PO/GRN exports); `unavailable` from invoices alone |
 | `payout_lag_days` | Marketplace payout lag | mean(payout date − order date), by channel | From settlement reports; actual dates, not assumed cycles |
 
@@ -72,7 +74,7 @@ This is the authoritative definition list. The code registry (`src/server/metric
 | `ar_total` | Trade receivables | Σ pendingInclTax of receivable bills at asOf | From OutstandingSnapshot; if absent, from the ledger with FIFO allocation (labelled) |
 | `ar_ageing` | AR ageing | pending by days past **due date** in buckets: not due / 1–30 / 31–60 / 61–90 / > 90 | If dueDate is missing → billDate + party creditDays → tenant default (labelled) |
 | `overdue_ar` | Overdue receivables | Σ pending where asOf > dueDate | |
-| `dso` | Days sales outstanding | avg AR ÷ credit sales incl. GST(P) × days(P) | Numerator and denominator are both GST-inclusive for consistency. Avg AR = mean of available AR points in P |
+| `dso` | Days sales outstanding | avg AR ÷ credit sales incl. GST(P) × days(P) | Numerator and denominator are both GST-inclusive for consistency. Avg AR = mean of AR at the period's opening, month ends and closing, rebuilt from bills, notes and allocations (cross-checked against the source's outstanding report). A credit sale is an invoice not fully settled on its own date |
 | `ap_total`, `ap_ageing` | Trade payables, ageing | as AR, on payable bills | |
 | `dpo` | Days payable outstanding | avg AP ÷ credit purchases incl. GST(P) × days(P) | Uses purchases, not COGS, for a GST-consistent trading-business denominator. Documented deviation from the COGS-based textbook form |
 | `ccc` | Cash conversion cycle | dio + dso − dpo | `unavailable` if any component is unavailable; components always shown |

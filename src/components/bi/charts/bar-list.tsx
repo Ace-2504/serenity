@@ -12,7 +12,7 @@ export function BarList({ rows, format, valueLabel }: { rows: { label: string; v
       {rows.map((r) => {
         const width = (r.value / max) * 100;
         return (
-          <div key={r.label} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] items-center gap-3">
+          <div key={r.label} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
             <span className="truncate text-sm text-[var(--viz-text)]">{r.label}</span>
             <div className="relative h-6 border-l border-[var(--viz-axis)]" {...bind(r.label, [{ label: r.sub ?? valueLabel, value: formatAs(format, r.value) }])}>
               <div className="absolute top-1 h-4 rounded-r-[4px]" style={{ width: `max(${width}%, ${r.value > 0 ? 2 : 0}px)`, background: "var(--viz-series-1)" }} />

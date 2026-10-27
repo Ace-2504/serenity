@@ -243,3 +243,56 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 * The ledger is rebuilt for the whole business on each import (≈10 s for the full demo); incremental rebuilds can come later.
 * Analytics combine all of a business's data sources. Two sources reporting the same sale (e.g. storefront and Tally) would double count, so source de-duplication is needed before mixing sources.
 * The app has no dark mode; charts are validated for its light surface only.
+
+## M6 — Customers & working capital (2026-10-27)
+
+![Customers](screenshots/customers.png)
+![Cash](screenshots/cash.png)
+
+**Implemented**
+* **Order and customer metrics** (`src/server/analytics/customers.ts`):
+  * invoices, average and median order value, units per order, orders per customer, repeat purchase rate, discounted-order share;
+  * customer metrics over named buyers only (counter and marketplaces excluded).
+* **RFM segments** (Champions, Loyal, New, Steady, Lapsing, At risk, Inactive), with a rhythm- and season-aware **lapsing** rule:
+  * the customer has 3+ orders and lifetime value in the top 60%;
+  * the silence is longer than max(30 days, 2 × usual gap);
+  * at least 1.5 orders would normally have been placed since the silence became unusual, judged from the customer's own purchases by calendar month.
+* **Buyer concentration:** top 5 / top 10 share and HHI; a marketplace counts as one buyer.
+* **Working capital** (`working-capital.ts`):
+  * receivables and payables rebuilt as on any date from bills, credit/debit notes and allocations;
+  * ageing by due date;
+  * DSO and DPO from month-end averages over credit volume; DIO from the stock ledger; cash conversion cycle with partial/unavailable states;
+  * trade working capital;
+  * scenarios: faster collection, and clearing slow stock at an owner-set recovery rate (labelled as estimates).
+* **Pages:**
+  * `/bi/customers`: tiles, segments, biggest buyers, segment lists ranked by lifetime value.
+  * `/bi/customers/[id]`: segment, rhythm, monthly purchases, open bills.
+  * `/bi/cash`: balances, cash cycle, AR/AP ageing, who to call first, scenario calculator.
+
+**How the lapsing rule was arrived at (measured on the full demo)**
+
+| Rule | Lapsing customers | Problem |
+|---|---|---|
+| Silence > 2 × median gap | 120+ | Every school flagged each off-season |
+| … and > longest previous gap, 3+ orders | 120+ | Small web buyers flagged by chance; a school with off-season orders still flagged |
+| Expected orders in the silent window (by calendar month) ≥ 1.5, top 60% value | 100+ | Peak-month tail (a school stopping mid-June) still inflated expectations |
+| **… counted only after the silence became unusual** | **40** | Planted key accounts at the top, plus planted schools that skipped a season; schools in their normal off-season are no longer flagged |
+
+**Tests (actual results)**
+```
+npm test            10 files, 92 tests passed
+npm run test:int    4 files, 45 tests passed
+lint / tsc / build  clean (1 pre-existing lint warning)
+```
+* Every open receivable and payable bill equals the source's bills-outstanding report to the paisa.
+* Ageing sums to the total; DSO follows its formula on 13 month-end points.
+* Order metrics match the generator.
+* The lapsing rule flags all planted lapsing accounts and every school that skipped a season, but no school active in the last 200 days and no customer below the 40th value percentile.
+* Concentration is consistent (top 10 ≥ top 5; the shares sum).
+* Unit tests cover ageing buckets, the days formula, the cash cycle's partial/unavailable states, and scenario clamps.
+* Browser: pages render in 1–4 s with no horizontal scroll at 390 px.
+
+**Known limitations**
+* Unallocated (on-account) receipts are not netted against receivables; template data always allocates receipts to bills.
+* The cash page takes about 4 s on the full demo: receivables are rebuilt for 13 month-end dates. Caching or snapshot tables can come with M7 jobs.
+* RFM thresholds are relative (quintiles), so segment sizes depend on the customer mix.

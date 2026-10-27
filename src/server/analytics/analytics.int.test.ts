@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
 import { getDomainPack } from "@/domain/packs";
 import { prisma } from "@/lib/prisma";
+import { concentration, customerRfm, orderMetrics } from "@/server/analytics/customers";
 import { averageInventory, stockAgeing, stockoutDays, stockPositions, turnoverMetrics } from "@/server/analytics/inventory";
+import { ageBills, averageOpen, creditVolume, daysMetric, openBills, sumPending } from "@/server/analytics/working-capital";
 import { profitability } from "@/server/analytics/profitability";
 import { forTenant } from "@/server/db/tenant";
 import { generateDemoDataset, type DemoDataset } from "@/server/demo/engine";
@@ -142,5 +144,69 @@ describe("inventory", () => {
   it("refuses to compute turnover for a period without sales", () => {
     const { turnover } = turnoverMetrics(new Prisma.Decimal(0), new Prisma.Decimal(1000), "2030-01-01", "2030-12-31", 0);
     expect(turnover).toMatchObject({ value: null, status: "unavailable" });
+  });
+});
+
+describe("receivables and payables", () => {
+  it.each(["receivable", "payable"] as const)("rebuilds every open %s bill exactly as the source reports it", async (side) => {
+    const bills = await openBills(db, tenantId, side, data.meta.periodTo);
+    const numbers = new Map((await db.voucher.findMany({ where: { id: { in: bills.map((b) => b.billId) } }, select: { id: true, number: true } })).map((v) => [v.id, v.number]));
+    const ours = new Map(bills.map((b) => [numbers.get(b.billId)!, Math.round(b.pending * 100)]));
+    const source = new Map(data.outstanding.filter((o) => o.side === side).map((o) => [o.bill_ref, Math.round(Number(o.pending_incl_tax) * 100)]));
+    expect(ours).toEqual(source);
+  });
+
+  it("ages every open receivable into exactly one bucket", async () => {
+    const bills = await openBills(db, tenantId, "receivable", data.meta.periodTo);
+    const aged = ageBills(bills);
+    expect(aged.reduce((s, a) => s + a.amount, 0)).toBeCloseTo(sumPending(bills), 2);
+    expect(aged.slice(1).reduce((s, a) => s + a.amount, 0)).toBeGreaterThan(0);
+  });
+
+  it("computes days sales outstanding from average receivables over credit sales", async () => {
+    const period = { from: "2025-04-01", to: "2026-03-31" };
+    const avg = await averageOpen(db, tenantId, "receivable", period);
+    const credit = await creditVolume(db, tenantId, "receivable", period);
+    const dso = daysMetric(avg.value, credit, 365, "credit sales");
+    expect(avg.points).toHaveLength(13);
+    expect(dso.value).toBe(Math.round((avg.value / credit) * 365));
+    expect(dso.value).toBeGreaterThan(20);
+    expect(dso.value).toBeLessThan(120);
+  });
+});
+
+describe("customers", () => {
+  it("measures orders, with customer metrics over named buyers only", async () => {
+    const m = await orderMetrics(db, tenantId, { from: data.meta.periodFrom, to: data.meta.periodTo });
+    const invoices = new Set(data.vouchers.filter((v) => v.voucher_type === "sales_invoice").map((v) => v.voucher_no)).size;
+    expect(m.invoices).toBe(invoices);
+    const anonymous = new Set(data.parties.filter((p) => p.buyer_identity === "anonymous").map((p) => p.party_code));
+    const named = new Set(data.vouchers.filter((v) => v.voucher_type === "sales_invoice" && !anonymous.has(v.party_code)).map((v) => v.party_code));
+    expect(m.namedCustomers).toBe(named.size);
+    expect(m.repeatPurchaseRate).toBeGreaterThan(0);
+    expect(m.repeatPurchaseRate).toBeLessThanOrEqual(1);
+    expect(m.medianOrderValue).toBeGreaterThan(0);
+  });
+
+  it("flags the planted lapsing key accounts and the schools that skipped a season, but not schools in their normal off-season", async () => {
+    const rfm = await customerRfm(db, tenantId, data.meta.periodTo);
+    const parties = new Map((await db.party.findMany({ select: { id: true, sourceKey: true } })).map((p) => [p.id, p.sourceKey]));
+    const segmentOf = new Map(rfm.map((c) => [parties.get(c.partyId), c.segment]));
+    for (const { partyCode } of data.groundTruth.planted.lapsingKeyCustomers) expect(segmentOf.get(partyCode), partyCode).toBe("lapsing");
+    for (const { partyCode } of data.groundTruth.planted.schoolsNotReordering) expect(segmentOf.get(partyCode), partyCode).toBe("lapsing");
+    const skipped = new Set(data.groundTruth.planted.schoolsNotReordering.map((s) => s.partyCode));
+    const activeSchools = rfm.filter((c) => parties.get(c.partyId)!.startsWith("SCH-") && !skipped.has(parties.get(c.partyId)!) && c.recencyDays < 200);
+    expect(activeSchools.filter((c) => c.segment === "lapsing")).toEqual([]);
+    const values = rfm.map((c) => c.lifetimeValue).sort((a, b) => a - b);
+    const p40 = values[Math.floor(values.length * 0.4)];
+    expect(rfm.filter((c) => c.segment === "lapsing" && c.lifetimeValue < p40)).toEqual([]);
+  });
+
+  it("measures dependence on top buyers", async () => {
+    const c = await concentration(db, tenantId, { from: data.meta.periodFrom, to: data.meta.periodTo });
+    expect(c.top5Share).toBeGreaterThan(0);
+    expect(c.top10Share!).toBeGreaterThanOrEqual(c.top5Share!);
+    expect(c.hhi).toBeGreaterThan(0);
+    expect(c.top.reduce((s, t) => s + t.share, 0)).toBeCloseTo(c.top10Share!, 6);
   });
 });
