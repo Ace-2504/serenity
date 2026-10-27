@@ -62,6 +62,7 @@ describe("import performance does not depend on stale planner statistics", () =>
   it("commits two years of data quickly after statistics describe many tiny tenants", async () => {
     await seedTinyTenantStatistics();
     const profile = scaledProfile(stationeryDemoProfile, { end: stationeryDemoProfile.end, maxItemsPerGroup: 5, maxPartiesPerSegment: 8 });
+    // The demo bundle includes customer purchase orders, so every table with per-row checks is loaded.
     const tenant = await prisma.tenant.create({ data: { name: "Planner test", domainPack: "stationery", isDemo: true } });
     tenantId = tenant.id;
     const db = forTenant(tenant.id);
@@ -71,5 +72,12 @@ describe("import performance does not depend on stale planner statistics", () =>
     await commitImport(db, tenant.id, staged.batchId);
     // About 30 s on a laptop-class machine; the bad plan took over 300 s.
     expect(Date.now() - started).toBeLessThan(100_000);
+
+    // Deleting the business cascades through every table; per-row foreign-key checks must use the
+    // right indexes too (a CustomerOrderLine table without fresh statistics made this take 70 s).
+    const deleting = Date.now();
+    await prisma.tenant.delete({ where: { id: tenant.id } });
+    tenantId = undefined;
+    expect(Date.now() - deleting).toBeLessThan(30_000);
   }, 300_000);
 });

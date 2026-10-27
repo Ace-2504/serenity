@@ -372,6 +372,7 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 * **Cause.** The table statistics described many tenants with a few rows each, the state left by test files that create many small businesses. In that state the wrong index looks marginally cheaper (8.27 against 8.43).
 * **Fix.** The pipeline now runs `ANALYZE` on each table right after bulk-loading it, before inserting rows that reference it. Previously there was a single `ANALYZE` after the lines.
 * **Proof.** With seeded "tiny tenant" statistics, the same commit took 328 s before the fix and 30 s after. `src/server/ingest/planner.int.test.ts` keeps it that way.
+* **Same trap again, on deletes (found during M9).** Deleting a demo business took 70 s: each of 47k source-record deletions ran a foreign-key check against `CustomerOrderLine` through its `(id, tenantId)` index, because the table (added in M10a) was never analysed after loading. Fixed by analysing it after loading, and the ML registry tables after each run. A delete now takes 5 s, and the planner test asserts it stays under 30 s.
 
 **Known limitations**
 * In-process job draining on a serverless host can be frozen after the response. Recovery relies on the next status poll and the 15-minute stale-lock requeue. Use `JOBS_MODE=worker` or Docker in production.

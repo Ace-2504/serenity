@@ -55,6 +55,8 @@ def save(conn: psycopg.Connection, tenant_id: str, dhash: str, repeat, forecast,
             rows,
         )
         written["basket_pairs"] = {"version": vid, "pairs": len(rows)}
+        # Fresh statistics, so later lookups and cascading deletes use the right indexes.
+        cur.execute('ANALYZE "Prediction", "ForecastPoint", "BasketPair"')
         # Outputs of superseded versions are no longer shown; keep the version rows (and metrics) for history.
         for table in ("Prediction", "ForecastPoint", "BasketPair"):
             cur.execute(

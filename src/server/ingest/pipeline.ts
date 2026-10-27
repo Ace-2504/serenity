@@ -796,6 +796,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
       else newOrders.push({ id: randomUUID(), tenantId, dataSourceId, sourceKey: o.key, ...data });
     }
     await createChunked(newOrders, (data) => tx.customerOrderLine.createMany({ data }));
+    if (newOrders.length > 0) await analyze(tx, "CustomerOrderLine");
   }
 
   // Records the source has again after an earlier file dropped them: unchanged content, so no
