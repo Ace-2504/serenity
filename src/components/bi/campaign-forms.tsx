@@ -13,11 +13,12 @@ async function call(url: string, method: string, body?: unknown): Promise<string
 
 const input = "w-full rounded-xl2 border border-mist bg-canvas px-3 py-2 text-sm";
 
-export function NewCampaignForm({ audiences }: { audiences: Record<string, string> }) {
+export function NewCampaignForm({ audiences, segments }: { audiences: Record<string, string>; segments: Record<string, string> }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [source, setSource] = useState(Object.keys(audiences)[0]);
+  const [segment, setSegment] = useState(Object.keys(segments)[0]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
@@ -26,7 +27,7 @@ export function NewCampaignForm({ audiences }: { audiences: Record<string, strin
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
-        const r = await fetch("/api/bi/campaigns", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, goal, audience: { source } }) });
+        const r = await fetch("/api/bi/campaigns", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, goal, audience: source === "segment" ? { source, segment } : { source } }) });
         const b = await r.json().catch(() => ({}));
         setBusy(false);
         if (!r.ok) return setError(b.message ?? "Could not create the campaign");
@@ -41,7 +42,7 @@ export function NewCampaignForm({ audiences }: { audiences: Record<string, strin
         Who
         <select className={input} value={source} onChange={(e) => setSource(e.target.value)}>
           {Object.entries(audiences)
-            .filter(([k]) => k !== "past_buyers_of_item" && k !== "segment")
+            .filter(([k]) => k !== "past_buyers_of_item")
             .map(([k, v]) => (
               <option key={k} value={k}>
                 {v}
@@ -49,6 +50,18 @@ export function NewCampaignForm({ audiences }: { audiences: Record<string, strin
             ))}
         </select>
       </label>
+      {source === "segment" && (
+        <label className="text-xs text-graphite">
+          Segment
+          <select className={input} value={segment} onChange={(e) => setSegment(e.target.value)}>
+            {Object.entries(segments).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="text-xs text-graphite md:col-span-2">
         Goal
         <input className={input} value={goal} onChange={(e) => setGoal(e.target.value)} required minLength={3} maxLength={500} placeholder="Get an order from each before July" />

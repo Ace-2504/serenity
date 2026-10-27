@@ -248,7 +248,8 @@ async function main() {
 
   console.log("Seed complete");
   console.log(`Admin email: ${email}`);
-  console.log(`Admin password: ${password}`);
+  // Never print the password: these logs end up in Docker and CI output.
+  console.log(process.env.ADMIN_PASSWORD ? "Admin password: as set in ADMIN_PASSWORD" : "Admin password: the development default (set ADMIN_PASSWORD)");
 }
 
 main()

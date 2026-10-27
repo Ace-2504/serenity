@@ -21,3 +21,10 @@ demo-data/
 ml/.venv/
 __pycache__/
 .pytest_cache/
+
+# Docker Compose
+backups/
+
+# Playwright
+playwright-report/
+test-results/

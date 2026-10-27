@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, setSessionCookie } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
+import { clientIp, LIMITS, safeNextPath, takeForIp, tooManyRequests } from "@/server/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const limited = takeForIp(LIMITS.registerPerIp, clientIp(request));
+  if (!limited.ok) return tooManyRequests(limited.retryAfterSec, "Too many sign-ups from this address; try again later");
   const isForm = (request.headers.get("content-type") || "").includes("application/x-www-form-urlencoded");
   const body = isForm ? await request.formData() : await request.json();
 
@@ -24,7 +27,7 @@ export async function POST(request: NextRequest) {
   const postalCode  = get("postalCode");
   const country     = get("country");
   const phone       = get("phone");
-  const nextPath    = get("next") || "/";
+  const nextPath    = safeNextPath(get("next") || "/");
 
   function errorRedirect(code: string) {
     return NextResponse.redirect(

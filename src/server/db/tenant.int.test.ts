@@ -159,3 +159,57 @@ describe("tenant isolation enforced by the database", () => {
     ).rejects.toMatchObject({ code: "P2003" });
   });
 });
+
+/**
+ * Row-level security, checked as a non-superuser role (superusers bypass it): a session that
+ * declares a business sees and writes only that business, whatever the SQL says.
+ */
+describe("row-level security", () => {
+  const ROLE = "serenity_rls_probe";
+  type Tx = Prisma.TransactionClient;
+  const as = <T>(settings: Record<string, string>, fn: (tx: Tx) => Promise<T>) =>
+    prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${ROLE}`);
+      for (const [key, value] of Object.entries(settings)) await tx.$executeRaw`SELECT set_config(${key}, ${value}, true)`;
+      return fn(tx);
+    });
+  const voucherIds = (tx: Tx) =>
+    tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Voucher" WHERE "id" IN (${a.voucherId}, ${b.voucherId})`.then((rows) => rows.map((r) => r.id));
+
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${ROLE}') THEN CREATE ROLE ${ROLE} NOLOGIN; END IF; END $$`);
+    await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${ROLE}`);
+    await prisma.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${ROLE}`);
+  });
+
+  afterAll(async () => {
+    await prisma.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`);
+    await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${ROLE}`);
+  });
+
+  it("shows only the declared business, even to a query without a tenant filter", async () => {
+    expect(await as({ "app.tenant_id": a.tenantId }, voucherIds)).toEqual([a.voucherId]);
+  });
+
+  it("does not update or delete another business's rows", async () => {
+    const updated = await as({ "app.tenant_id": a.tenantId }, (tx) => tx.$executeRaw`UPDATE "Party" SET "city" = 'Agra' WHERE "id" IN (${a.partyId}, ${b.partyId})`);
+    expect(updated).toBe(1);
+    expect((await prisma.party.findUniqueOrThrow({ where: { id: b.partyId } })).city).not.toBe("Agra");
+    const deleted = await as({ "app.tenant_id": a.tenantId }, (tx) => tx.$executeRaw`DELETE FROM "AuditLog" WHERE "tenantId" = ${b.tenantId}`);
+    expect(deleted).toBe(0);
+  });
+
+  it("refuses to write a row for another business", async () => {
+    await expect(
+      as({ "app.tenant_id": a.tenantId }, (tx) => tx.$executeRaw`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity") VALUES (${randomUUID()}, ${b.tenantId}, 'x', 'y')`)
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("shows nothing to a session that must declare a business and has not", async () => {
+    expect(await as({ "app.tenant_required": "on" }, voucherIds)).toEqual([]);
+  });
+
+  it("leaves sessions that declare nothing (web app, job queue) to the application's scoping", async () => {
+    expect((await as({}, voucherIds)).sort()).toEqual([a.voucherId, b.voucherId].sort());
+  });
+});

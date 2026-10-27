@@ -4,6 +4,7 @@ import { jsonError, requireBi } from "@/server/bi/api";
 import { CAN_IMPORT } from "@/server/bi/context";
 import { suggestDraft, templateDraft } from "@/server/campaigns/draft";
 import { validateOffer, type Offer } from "@/server/campaigns/workflow";
+import { LIMITS, tooManyRequests } from "@/server/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,6 +16,8 @@ export const maxDuration = 120;
 export async function POST(request: NextRequest, { params }: { params: { campaignId: string } }) {
   const bi = await requireBi(request, CAN_IMPORT);
   if (bi instanceof NextResponse) return bi;
+  const limited = LIMITS.draftsPerUser.take(bi.userId);
+  if (!limited.ok) return tooManyRequests(limited.retryAfterSec, "Too many suggestions; wait a minute");
   const c = await bi.db.campaign.findFirst({ where: { id: params.campaignId } });
   if (!c) return jsonError(404, "NOT_FOUND", "Campaign not found");
   const body = (await request.json().catch(() => ({}))) as { offerPct?: unknown };

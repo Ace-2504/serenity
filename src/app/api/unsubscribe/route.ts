@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { readUnsubscribeToken } from "@/server/campaigns/tokens";
 import { forTenant } from "@/server/db/tenant";
+import { clientIp, LIMITS, takeForIp, tooManyRequests } from "@/server/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
  * customer and channel. Always records a revocation; never reveals anything about the customer.
  */
 export async function POST(request: NextRequest) {
+  const limited = takeForIp(LIMITS.unsubscribePerIp, clientIp(request));
+  if (!limited.ok) return tooManyRequests(limited.retryAfterSec);
   const form = await request.formData().catch(() => null);
   const token = (form?.get("token") as string | null) ?? request.nextUrl.searchParams.get("token") ?? "";
   const parsed = readUnsubscribeToken(token);

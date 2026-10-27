@@ -593,3 +593,75 @@ pytest (ml/)        16 passed
 * Email only. WhatsApp needs a Meta Business account, approved templates and recorded opt-in; not built.
 * Consent is recorded by the owner; there is no customer-facing opt-in form yet.
 * Results count orders after sending; they do not prove the message caused them, except through the treatment–holdout difference, which is noisy for small audiences (the page shows group sizes).
+
+---
+
+## M11 — Hardening: row-level security, rate limits, Docker, system page, browser tests
+
+**What was built**
+* **Row-level security** (migration `row_level_security`): enabled and forced on all 31 business tables.
+  * A permissive policy plus a restrictive `tenant_scope` policy (`app_tenant_allows()`): a session that sets `app.tenant_id` sees and writes only that business; a session with `app.tenant_required = on` and no business sees nothing.
+  * The ML worker declares both at connection time.
+  * Web requests and the job queue declare nothing and stay scoped by `forTenant()`. That is a deliberate first step: per-request database scoping of the web app would wrap every query in a transaction.
+* **Rate limits** (`src/server/security/rate-limit.ts`): sign-in (per email, and per address behind a trusted proxy), sign-up, uploads, assistant, wording suggestions, unsubscribe; 429 with `Retry-After`. The assistant's own limiter was replaced by the shared one.
+* **Security fixes found on the way:**
+  * the sign-in and sign-up `next` parameter allowed redirects to other sites (open redirect); now same-site paths only;
+  * `seed-admin` printed the owner password to the logs, and Docker would have kept it; now it does not;
+  * Secure cookies can be turned off with `COOKIE_SECURE=0` for plain-HTTP office networks; otherwise sign-in silently fails there.
+* **Health and System page:**
+  * `/api/health` checks the database (503 when down);
+  * `/bi/system` (owner and accountant) shows imports, background work with median and slowest-10% times and recent failures, the assistant's withheld-answer rate, active models, outbox counts and the active settings.
+* **Docker Compose** (`Dockerfile`, `docker-compose.yml`, `docker/postgres/10-app-role.sh`):
+  * one image (Node 20 + Python 3.13 with the ML venv, non-root user);
+  * services `db` (Postgres 16; the app logs in as a non-superuser that owns its tables, so RLS applies), `migrate` (migrations + owner account, then exits), `app`, `worker`, and optional `ollama` (`--profile llm`);
+  * a build secret for TLS-inspecting proxies.
+* **Backups:** `scripts/backup.sh` (pg_dump custom format, readability check, optional retention) and `scripts/restore.sh` (`check` = restore drill into a scratch database with row counts; `replace` = swap the live database, keeping the old one).
+* **Browser tests** (`e2e/platform.spec.ts`, Playwright 1.63.0):
+  * health; sign-in; quick demo load; all 11 reports render with no script errors and no horizontal scroll at 390 px;
+  * a campaign through all four approvals into the outbox; the assistant without a model.
+  * New CI job `e2e`.
+* **Product gap found by the browser test:** the campaign form offered only "lapsing" and "low repeat probability", and both can be empty (in the six-month demo, lapsing is). It now also offers a customer segment, and an empty audience says so.
+* **Operations guide:** [09-operations.md](09-operations.md) covers install, HTTPS or LAN access, what protects the data, rate limits, backups and drills, upgrades and rollback, monitoring, and known limits.
+
+**Verified in Docker on this machine (fresh volumes)**
+* `docker compose up` → healthy in 12 s; migrations applied as role `serenity` (`rolsuper = false`).
+* **Browser tests against the Compose stack: 16 passed (40 s).**
+* **RLS as the app's role:**
+
+  | Session | Voucher rows visible |
+  |---|---|
+  | No settings | 6,203 |
+  | `app.tenant_required = on` | 0 |
+  | With the business declared | 6,203 |
+
+* The ML worker ran inside the container under RLS (4.8 s, quick demo).
+* **Bug found and fixed:** the full two-year demo load never finished in Docker. Docker's default 64 MB `/dev/shm` made Postgres parallel queries fail ("could not resize shared memory segment … No space left on device") and the job retried. `shm_size: 256mb` fixed it; the load then took **211 s** (136–163 s outside Docker).
+* **Page times, full demo, median of 3:**
+
+  | Page | Docker (RLS active) | Native (superuser) |
+  |---|---|---|
+  | Overview | 1.28 s | 0.77 s |
+  | Inventory | 3.21 s | 2.76 s |
+  | Cash | 6.74 s | 4.50 s |
+
+  The heaviest receivables query took 366/423 ms as superuser and 405/329 ms as the app role, the same within noise. The gap comes from the container setup, not from RLS. The Cash page is the slowest and is the first candidate for optimisation.
+* **Backup → restore drill:**
+  * backup: 52 MB dump in 10.7 s;
+  * `check`: identical counts (1 business, 79,275 vouchers, 144,240 lines, 1,231 parties, 245 items) in 23.9 s;
+  * `replace`: the app came back healthy with the same counts, RLS still forced and all 62 policies present.
+* **Docker Hub rate-limited** the build (HTTP 429) during development; pulling the base image from `mirror.gcr.io` worked. The guide documents both.
+
+**Tests (actual results)**
+```
+npm test            17 files, 148 tests passed (new: rate limiter and return path 3)
+npm run test:int    13 files, 110 tests passed (280 s; new: RLS 5, system status 3)
+pytest (ml/)        16 passed
+playwright          16 passed against Docker Compose
+```
+
+**Known limitations**
+* RLS does not yet scope web requests (see above); it protects the ML worker's sessions and any future session that declares a business.
+* Rate limits live in one process's memory.
+* Logs are plain console output (no structured logging yet).
+* The `ollama` service (0.12.6) starts and the app reaches it at `http://ollama:11434` (empty model list), but no model could be pulled: this environment's proxy refuses `registry.ollama.ai` and `huggingface.co`. The assistant with a real model is still unverified.
+* No TLS in the stack: use a reverse proxy (guide §2).

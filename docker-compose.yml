@@ -1,0 +1,85 @@
+# Serenity on one machine: Postgres, migrations, the web app, the job worker and (optionally) a
+# local model server. Copy .env.docker.example to .env, fill in the secrets, then:
+#
+#   docker compose up -d --build                 # without the assistant's model server
+#   docker compose --profile llm up -d --build   # with Ollama; then pull a model (see the guide)
+#
+# Everything stays on this machine: the app talks only to these containers unless SMTP_URL is set.
+name: serenity
+
+x-app: &app
+  image: serenity:local
+  build: .
+  restart: unless-stopped
+  environment:
+    DATABASE_URL: postgresql://serenity:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@db:5432/serenity
+    DIRECT_URL: postgresql://serenity:${APP_DB_PASSWORD}@db:5432/serenity
+    AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
+    ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@serenity.local}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+    APP_URL: ${APP_URL:-http://localhost:3000}
+    JOBS_MODE: worker
+    ML_AUTORUN: ${ML_AUTORUN:-}
+    LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434}
+    LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b-instruct}
+    SMTP_URL: ${SMTP_URL:-}
+    SMTP_FROM: ${SMTP_FROM:-}
+    TRUST_PROXY: ${TRUST_PROXY:-}
+    COOKIE_SECURE: ${COOKIE_SECURE:-}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Docker's default 64 MB /dev/shm is too small for Postgres parallel queries on a full year of data.
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/10-app-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d serenity"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Applies database migrations and creates the owner account, then exits.
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["sh", "-c", "npx prisma migrate deploy && node scripts/seed-admin.mjs"]
+
+  app:
+    <<: *app
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["npm", "run", "worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  ollama:
+    image: ollama/ollama:0.12.6
+    profiles: ["llm"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  ollama:

@@ -25,6 +25,14 @@ def connect(url: str | None = None) -> psycopg.Connection:
     return psycopg.connect(connection_url(url))
 
 
+def scope_to_tenant(conn: psycopg.Connection, tenant_id: str) -> None:
+    """Declare the business for this session. Row-level security (when the role is not a superuser)
+    then hides every other business's rows and refuses writes to them, even if a query forgets
+    its tenant filter."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT set_config('app.tenant_required', 'on', false), set_config('app.tenant_id', %s, false)", (tenant_id,))
+
+
 def _frame(conn: psycopg.Connection, sql: str, params: tuple) -> pd.DataFrame:
     with conn.cursor() as cur:
         cur.execute(sql, params)

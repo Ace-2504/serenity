@@ -5,11 +5,14 @@ import { CampaignActions, CampaignEditor } from "@/components/bi/campaign-forms"
 import { formatDate, formatDateTime, formatInrCompact } from "@/components/bi/format";
 import { dataSpan } from "@/server/analytics/profitability";
 import { CAN_DECIDE, CAN_IMPORT, getBiContext } from "@/server/bi/context";
+import { SEGMENT_LABELS, type Segment } from "@/server/analytics/customers";
 import { AUDIENCES, campaignResults, stateOf, type Audience } from "@/server/campaigns/service";
 import { transportName } from "@/server/campaigns/transport";
 import { mentionsOffer, pendingApprovals, type Offer } from "@/server/campaigns/workflow";
 
 export const dynamic = "force-dynamic";
+
+const audienceLabel = (a: Audience) => (a.source === "segment" && a.segment ? `${AUDIENCES.segment}: ${SEGMENT_LABELS[a.segment as Segment]?.label ?? a.segment}` : AUDIENCES[a.source]);
 
 const ELIGIBILITY: Record<string, string> = {
   eligible: "Agreed to email",
@@ -73,7 +76,8 @@ export default async function CampaignPage({ params }: { params: { campaignId: s
 
       <section className="rounded-xl2 border border-mist bg-canvas p-5">
         <h3 className="font-display text-xl">1. Audience</h3>
-        <p className="mt-1 text-sm text-graphite">{AUDIENCES[(c.audience as Audience).source]}. {c.holdoutPct}% of eligible customers are held back and not contacted, to measure the effect.</p>
+        <p className="mt-1 text-sm text-graphite">{audienceLabel(c.audience as Audience)}. {c.holdoutPct}% of eligible customers are held back and not contacted, to measure the effect.</p>
+        {groups.length === 0 && <p className="mt-2 text-sm">No customer matches this audience right now. Cancel this campaign and choose another audience.</p>}
         <ul className="mt-2 space-y-1 text-sm">
           {groups.map((g) => (
             <li key={`${g.eligibility}|${g.group}`}>

@@ -6,6 +6,7 @@ export default function LoginPage({
   searchParams?: { error?: string; next?: string };
 }) {
   const hasError = searchParams?.error === "invalid";
+  const rateLimited = searchParams?.error === "rate_limited";
   const next = searchParams?.next || "/";
 
   return (
@@ -20,6 +21,11 @@ export default function LoginPage({
         {hasError ? (
           <p className="mt-4 rounded-lg border border-terracotta bg-[#fce7e2] px-3 py-2 text-sm text-terracotta">
             Invalid credentials. Please try again.
+          </p>
+        ) : null}
+        {rateLimited ? (
+          <p className="mt-4 rounded-lg border border-terracotta bg-[#fce7e2] px-3 py-2 text-sm text-terracotta">
+            Too many sign-in attempts. Wait 15 minutes and try again.
           </p>
         ) : null}
 

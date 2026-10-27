@@ -16,6 +16,7 @@ from serenity_ml import CODE_VERSION, basket, db, forecast, registry, repeat
 
 def run(tenant_id: str, as_of: str | None = None, url: str | None = None) -> dict:
     with db.connect(url) as conn:
+        db.scope_to_tenant(conn, tenant_id)
         invoices = db.load_invoices(conn, tenant_id)
         lines = db.load_lines(conn, tenant_id)
         if invoices.empty:

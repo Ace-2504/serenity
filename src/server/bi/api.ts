@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { MembershipRole } from "@prisma/client";
+import { secureCookies } from "@/lib/auth";
 import { ACTIVE_TENANT_COOKIE, getBiContextFromRequest, type BiContext } from "@/server/bi/context";
 import { ImportError } from "@/server/ingest/pipeline";
 
@@ -25,7 +26,7 @@ export async function requirePlatformOwner(request: NextRequest): Promise<NonNul
 }
 
 export function withActiveTenant(response: NextResponse, tenantId: string): NextResponse {
-  response.cookies.set(ACTIVE_TENANT_COOKIE, tenantId, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 24 * 30 });
+  response.cookies.set(ACTIVE_TENANT_COOKIE, tenantId, { httpOnly: true, sameSite: "lax", secure: secureCookies(), path: "/", maxAge: 60 * 60 * 24 * 30 });
   return response;
 }
 

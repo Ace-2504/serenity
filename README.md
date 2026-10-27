@@ -13,7 +13,16 @@ Phase 5 implementation scaffold for the stationery ecommerce project.
 5. API starter routes for health, catalog categories, and admin order queue.
 6. Prisma schema starter aligned with phase 4 data model.
 
-## Run Locally
+## Run with Docker (recommended for a business)
+
+```bash
+cp .env.docker.example .env      # then replace every "change-me" (openssl rand -hex 32)
+docker compose up -d --build     # Postgres, migrations, web app on :3000, background worker
+```
+
+Sign in at `http://localhost:3000/admin/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`, then open `/bi`. Backups, HTTPS, upgrades and the optional local model server: [`docs/platform/09-operations.md`](docs/platform/09-operations.md).
+
+## Run Locally (development)
 
 1. Install dependencies:
 
@@ -60,6 +69,8 @@ npm run dev
 
 1. Unit tests: `npm test`.
 2. Integration tests need a separate PostgreSQL database: set `TEST_DATABASE_URL` (see `.env.example`), then `npm run test:int`. Migrations are applied automatically; tests create and delete their own tenants.
+3. ML worker tests: `python -m venv ml/.venv && ml/.venv/bin/pip install -r ml/requirements.txt && (cd ml && .venv/bin/python -m pytest)`.
+4. Browser tests: `npm run build`, then `npx playwright test` (starts the app on port 3200), or `E2E_BASE_URL=http://localhost:3000 npx playwright test` against a running app. Needs the owner account from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
 ## Payment Integration (Razorpay)
 

@@ -158,14 +158,14 @@ States: `draft → audience_approved → content_approved → ready → sending 
 
 ## 3. Security and tenancy
 
-* **Tenancy.** Every new table carries `tenantId`. All access goes through `forTenant(session)` repository helpers. Raw `prisma.*` on tenant tables is lint-banned outside `src/server/db/`. Postgres row-level security (RLS) is added in hardening (Phase 7) as defence in depth, via `SET LOCAL app.tenant_id` inside transactions.
+* **Tenancy.** Every business table carries `tenantId`. All access goes through `forTenant()`, which scopes every read and write. Links between business tables are composite `(id, tenantId)` foreign keys. **Postgres row-level security (built in M11)** is on all 31 business tables: a session that declares `app.tenant_id` sees and writes only that business; the ML worker declares its business and sets `app.tenant_required`, so a forgotten filter returns nothing. Web requests are not yet scoped per request in the database. Superusers bypass RLS, so the Docker setup connects as a non-superuser. Details: 09-operations.md §3.
 * **Roles** extend the existing enum, per tenant via `Membership`:
   * `owner_admin`: everything, including campaign send approval
   * `accountant`: imports, data quality
   * `analyst`: read-only analytics
   * the existing storefront roles
 * **Sessions.** Fix debt items 1–3 (expiry, no default secret, constant-time compare). The token carries `sessionVersion` so logout-everywhere is possible.
-* **Secrets** live only in env vars and are never in logs. The pino logger redacts `authorization`, `cookie`, `*secret*`, `*token*`, `phone` and `email`.
+* **Secrets** live only in env vars and are never logged (the setup script no longer prints the owner password). Rate limits on sign-in, sign-up, uploads, assistant, wording suggestions and unsubscribe (M11; per process, listed in 09-operations.md §3). The sign-in return path is restricted to same-site paths. Secure cookies can be turned off with `COOKIE_SECURE=0` for plain-HTTP office networks.
 * **Uploads.** Size limit, MIME + magic-byte sniffing, XML parsed with external entities disabled (XXE), formula-injection-safe CSV export (prefix `=+-@` with `'`).
 * **Audit log.** Imports, commits, finding status changes, campaign approvals and sends, role changes, LLM tool calls.
 
@@ -193,6 +193,6 @@ Model names are configuration (`LLM_MODEL`), not code. The candidate list is re-
 
 ## 6. Observability
 
-* pino structured logs with a request ID and tenant ID.
-* `ImportBatch` timing/counts and `JobRun` rows act as operational metrics. A `/admin/system` page shows import success rate, last successful sync per source, job failures and assistant guard-failure rate.
-* Health endpoint extended with DB and LLM reachability.
+* Not built yet: structured (JSON) logs with a request ID and tenant ID. Logs today are plain console output from the app and worker.
+* `ImportBatch` and `Job` rows act as operational metrics. The `/bi/system` page (built in M11) shows, per business, import counts and the last import per source, background-work counts and timings with recent failures, the assistant's withheld-answer rate, active models and outbox counts.
+* `/api/health` returns the database round trip, and 503 when it is unreachable (used by the Docker health check). Model-server reachability is shown on the assistant page.

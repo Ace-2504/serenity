@@ -1,6 +1,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { NewCampaignForm } from "@/components/bi/campaign-forms";
+import { SEGMENT_LABELS } from "@/server/analytics/customers";
 import { formatDate } from "@/components/bi/format";
 import { CAN_IMPORT, getBiContext } from "@/server/bi/context";
 import { AUDIENCES } from "@/server/campaigns/service";
@@ -34,7 +35,7 @@ export default async function CampaignsPage() {
         <section className="rounded-xl2 border border-mist bg-canvas p-5">
           <h3 className="font-display text-xl">New campaign</h3>
           <div className="mt-3">
-            <NewCampaignForm audiences={AUDIENCES} />
+            <NewCampaignForm audiences={AUDIENCES} segments={Object.fromEntries(Object.entries(SEGMENT_LABELS).map(([k, v]) => [k, `${v.label}: ${v.meaning.toLowerCase()}`]))} />
           </div>
         </section>
       )}

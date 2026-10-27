@@ -7,6 +7,7 @@ import { tallyToTemplate } from "@/server/adapters/tally/convert";
 import { stageImport } from "@/server/ingest/pipeline";
 import type { UploadedFile } from "@/server/ingest/parse";
 import { TEMPLATE_FILES } from "@/server/ingest/template";
+import { LIMITS, tooManyRequests } from "@/server/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -25,6 +26,8 @@ const TEMPLATE_NAMES = new Set<string>(Object.values(TEMPLATE_FILES));
 export async function POST(request: NextRequest) {
   const bi = await requireBi(request, CAN_IMPORT);
   if (bi instanceof NextResponse) return bi;
+  const limited = LIMITS.importsPerUser.take(bi.userId);
+  if (!limited.ok) return tooManyRequests(limited.retryAfterSec, "Too many uploads in the last hour; try again later");
   if (bi.tenant.isDemo) {
     return jsonError(409, "DEMO_BUSINESS", "This is a demo business. Create your own business to upload real data; demo and real data are never mixed.");
   }

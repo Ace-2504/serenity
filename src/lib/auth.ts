@@ -85,11 +85,17 @@ export function parseSessionToken(token?: string, now: number = Date.now()): Ses
   return payload;
 }
 
+/**
+ * Whether cookies are marked Secure (sent over HTTPS only). On in production; COOKIE_SECURE=0 turns
+ * it off for a plain-HTTP office network, where browsers would otherwise drop the session cookie.
+ */
+export const secureCookies = () => (process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE !== "0" : process.env.NODE_ENV === "production");
+
 export function setSessionCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookies(),
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS
   });
@@ -99,7 +105,7 @@ export function clearSessionCookie(response: NextResponse): void {
   response.cookies.set(SESSION_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookies(),
     path: "/",
     maxAge: 0
   });
