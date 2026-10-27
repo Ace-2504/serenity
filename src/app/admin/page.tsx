@@ -53,7 +53,7 @@ export default async function AdminPage() {
         <h1 className="mt-2 font-display text-4xl">Admin Operations Dashboard</h1>
         <p className="mt-2 text-sm text-graphite">A calm control center for catalog, orders, inventory, payments, promotions, and support workflows.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link href="/" className="rounded-full border border-mist px-4 py-2 text-sm font-semibold hover:border-ink hover:bg-paper">
+          <Link href="/shop" className="rounded-full border border-mist px-4 py-2 text-sm font-semibold hover:border-ink hover:bg-paper">
             Customer Dashboard
           </Link>
           <Link href="/admin/inventory" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold hover:border-forest hover:bg-forest hover:text-canvas">

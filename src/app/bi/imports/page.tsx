@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { formatDate, formatDateTime } from "@/components/bi/format";
 import { Onboarding } from "@/components/bi/onboarding";
+import { fullDemoAllowed } from "@/server/bi/demo";
 import { StatusChip } from "@/components/bi/status-chip";
 import { TallyConnect } from "@/components/bi/tally-connect";
+import { liveTallyAvailable } from "@/server/adapters/tally/live";
 import { AmazonSync } from "@/components/bi/amazon-sync";
 import { RegisterUpload } from "@/components/bi/register-upload";
 import { REGISTER_FIELDS, VOUCHER_TYPE_LABELS } from "@/server/adapters/register";
@@ -14,7 +16,7 @@ export default async function ImportsPage() {
   const resolved = await getBiContext();
   const bi = resolved?.context;
   if (!resolved || !bi) {
-    return <Onboarding canCreate={resolved?.sessionRoles.includes("owner_admin") ?? false} />;
+    return <Onboarding fullDemo={fullDemoAllowed()} />;
   }
 
   const [sources, batches] = await Promise.all([
@@ -30,7 +32,7 @@ export default async function ImportsPage() {
           <section className="space-y-4 rounded-xl2 border border-mist bg-canvas p-5">
             <h2 className="font-display text-2xl">Upload accounting data</h2>
             <p className="text-sm text-graphite">Uploads are switched off in a demo business: demo and real data are never mixed. Reload the demo, or create your own business to upload real exports.</p>
-            <Onboarding canCreate={resolved.sessionRoles.includes("owner_admin")} stacked />
+            <Onboarding stacked fullDemo={fullDemoAllowed()} />
           </section>
         ) : CAN_IMPORT.includes(bi.role) ? (
           <section className="rounded-xl2 border border-mist bg-canvas p-5">
@@ -55,7 +57,14 @@ export default async function ImportsPage() {
           <section className="rounded-xl2 border border-mist bg-canvas p-5">
             <h2 className="font-display text-2xl">Live sync from TallyPrime</h2>
             <div className="mt-2">
-              <TallyConnect initial={(tally?.settings as Parameters<typeof TallyConnect>[0]["initial"]) ?? null} connected={!!tally} />
+              {liveTallyAvailable() ? (
+                <TallyConnect initial={(tally?.settings as Parameters<typeof TallyConnect>[0]["initial"]) ?? null} connected={!!tally} />
+              ) : (
+                <p className="text-sm text-graphite">
+                  Live sync needs Serenity running on a computer in your office, next to Tally (see the installation guide). Here, export the Day Book and masters from
+                  Tally as XML and upload them above.
+                </p>
+              )}
             </div>
           </section>
         )}

@@ -1,6 +1,6 @@
 # 09 — Operations: install, secure, back up, upgrade
 
-This guide is for whoever runs Serenity for a business: on one office computer, a small server, or a private cloud machine. Everything runs in Docker on that machine; business data does not leave it unless you turn on email sending (or a remote model server, which is refused by default).
+This guide is for whoever runs Serenity: on one office computer, a small server or a private cloud machine with Docker (§1–§7), or as a hosted website on Vercel with a hosted Postgres (§8). With Docker, business data does not leave the machine unless you turn on email sending (or a remote model server, which is refused by default).
 
 ## 1. Install with Docker Compose
 
@@ -23,7 +23,7 @@ What starts:
 | `worker` | Runs queued work: import commits, demo loads, findings, model training (Python, in the same image) and campaign sends. |
 | `ollama` | Optional (`--profile llm`): a local model server for the assistant. |
 
-Open `http://localhost:3000/admin/login`, sign in with `ADMIN_EMAIL`, then go to **Business intelligence** (`/bi`). Load a demo business from the Imports page to look around; demo data is labelled everywhere and never mixed with real data.
+Open `http://localhost:3000/login`, sign in with `ADMIN_EMAIL`, and you land on **Business intelligence** (`/bi`). Anyone who can reach the app can also create their own account at `/signup`; set `SIGNUPS_OPEN=0` to close sign-up on a private install. Load a demo business from the Imports page to look around; demo data is labelled everywhere and never mixed with real data.
 
 **Health:** `GET /api/health` answers `200` with the database round-trip time, or `503` when the database is unreachable. Docker uses it as the app's health check.
 
@@ -68,7 +68,8 @@ None of these connectors has yet been tested against a real TallyPrime, real BUS
 
 | Layer | What it does | Where |
 |---|---|---|
-| Roles | Owner (`owner_admin`): everything, including approving recommendations and campaigns. Accountant: imports, data quality, system page. Analyst: read-only. | `src/server/bi/context.ts` |
+| Accounts | Anyone can sign up (unless `SIGNUPS_OPEN=0`) and create businesses, of which they are the owner. Nobody sees a business they are not a member of. | `src/app/api/auth/signup` |
+| Roles | Owner (`owner_admin`): everything, including approving recommendations and campaigns and deleting the business. Accountant: imports, data quality, system page. Analyst: read-only. | `src/server/bi/context.ts` |
 | Application scoping | Every query on a business's tables goes through `forTenant()`, which adds the business to every read and write and refuses writes for another business. | `src/server/db/tenant.ts` |
 | Composite foreign keys | Rows can only point to rows of the same business, even through nested writes. | schema |
 | **Row-level security (M11)** | Postgres policies on all 31 business tables. A session that declares a business (`app.tenant_id`) sees and writes only that business's rows, whatever its SQL says. The ML worker declares its business and also sets `app.tenant_required`, so a forgotten filter returns nothing rather than another business's data. Web requests do not yet declare a business per request; they rely on `forTenant()`. | migration `row_level_security`; `ml/serenity_ml/db.py` |
@@ -85,6 +86,8 @@ Row-level security does not apply to Postgres superusers. The Compose setup conn
 | Sign-in | 10 per 15 min | email address |
 | Sign-in | 50 per 15 min | client address (only with `TRUST_PROXY=1`) |
 | Sign-up | 10 per hour | client address (only with `TRUST_PROXY=1`) |
+| Creating businesses | 10 per hour | user |
+| Loading a demo | 6 per hour | user |
 | Uploads | 30 per hour | user |
 | Assistant questions | 20 per minute | user |
 | Campaign wording suggestions | 20 per minute | user |
@@ -136,3 +139,50 @@ If a migration fails, the app and worker do not start and the old database is un
 * No built-in TLS: use a reverse proxy (§2).
 * Backups are scripts you schedule; there is no built-in off-site copy.
 * Row-level security narrows the ML worker's sessions; web requests are scoped by the application (`forTenant()`), not yet by a per-request database setting.
+
+## 8. Hosting on Vercel with a hosted Postgres
+
+The same code runs as a website: the product site at `/`, self-serve sign-up, and each customer's businesses kept apart. The demo shop stays at `/shop`.
+
+**Status: the Vercel build is checked by Vercel on every push, but a deployment with a database has not been tried from the development environment** (its network cannot reach `vercel.app`). Walk through the checks at the end before inviting anyone.
+
+### Steps
+
+1. **Create a Postgres 16 database** with any hosted provider (Neon, Supabase, AWS RDS, …). Choose a Mumbai region (`ap-south-1`) if your customers are in India. You need two connection strings:
+   * `DATABASE_URL`: the pooled one, for the app. With PgBouncer-style pooling add `?pgbouncer=true&connection_limit=1`.
+   * `DIRECT_URL`: the direct (unpooled) one, for migrations.
+   * Connect as a role that is **not** a superuser and has no `BYPASSRLS`, so row-level security applies (§3). The provider's default owner role usually qualifies; the policies are forced on the table owner.
+2. **In the Vercel project → Settings → Environment Variables** (Production and Preview), set:
+
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL`, `DIRECT_URL` | from step 1 |
+   | `AUTH_SECRET` | `openssl rand -hex 32`; the app refuses to start in production without it |
+   | `TRUST_PROXY` | `1` (Vercel sets the client address header) |
+   | `APP_URL` | the site's address, e.g. `https://serenity.example.in`; used in unsubscribe links |
+   | `SMTP_URL`, `SMTP_FROM` | optional: only if approved campaign emails should really be sent |
+   | `AMAZON_SP_*` | optional: see §2a |
+
+   Do not set `LLM_BASE_URL` to an outside AI service unless your customers have agreed to it; without a model server the assistant answers from report templates.
+3. **Redeploy.** The `vercel-build` script runs `prisma generate`, applies migrations with `DIRECT_URL`, then builds. Without `DATABASE_URL` it skips migrations so preview builds still succeed.
+4. **Set the function region** (Project → Settings → Functions) to the database's region, e.g. Mumbai (`bom1`); every page makes several database round trips.
+
+### What is different when hosted
+
+| Feature | On Vercel | Why |
+|---|---|---|
+| Background work (import commits, quick demos, findings, campaign sends) | Runs after the response, inside the request's 60-second limit (`maxDuration`). A job that runs out of time is retried after 15 minutes. | Serverless functions are frozen after their time limit. |
+| Two-year demo | Not offered | It takes minutes. It returns when a separate worker runs jobs (`JOBS_MODE=worker`, e.g. the Docker `worker` on another machine against the same database). |
+| Live Tally sync and the daily sync | Off; upload Day Book exports instead | A hosted server cannot reach Tally on an office network. `TALLY_ALLOW_REMOTE=1` turns it on for a Tally you have deliberately exposed and secured. |
+| Predictions (ML) | Not available: running them stops with "The ML worker is not installed" | The models run in Python, which the Vercel Node runtime does not have. Run the Docker `worker` against the same database to get them. |
+| Rate limits | Weaker | They are held in each function instance's memory, and Vercel runs many short-lived instances. Add your provider's firewall or rate limiting for sign-in and sign-up. |
+| Backups | Use the database provider's backups and point-in-time restore; `scripts/backup.sh` works too with `DATABASE_URL` set | |
+
+### Checks after the first deploy
+
+1. `GET /api/health` answers `200`.
+2. Create an account at `/signup`, load the quick demo, open each report.
+3. Delete the demo business from **Business**, and confirm it is gone from the switcher.
+4. Sign up a second account and confirm it sees none of the first account's businesses.
+
+The storefront at `/shop` needs its own catalogue (`scripts/seed-dummy-catalog.mjs`) and an admin account (`npm run seed:admin`, run from your computer with `DATABASE_URL` set); without them it shows an empty shop.

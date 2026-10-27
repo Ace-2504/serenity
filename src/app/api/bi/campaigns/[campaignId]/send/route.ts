@@ -7,6 +7,8 @@ import { enqueueJob } from "@/server/jobs/queue";
 import { kickJobs } from "@/server/jobs/runner";
 
 export const dynamic = "force-dynamic";
+/** Background work started here runs within this limit on serverless hosts (see kickJobs). */
+export const maxDuration = 60;
 
 /** The owner's explicit send action. Requires every approval; sending runs as a background job. */
 export async function POST(request: NextRequest, { params }: { params: { campaignId: string } }) {

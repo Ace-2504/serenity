@@ -45,7 +45,7 @@ export default async function CategoryPage({ params }: { params: { category: str
         <section className="rounded-2xl border border-mist bg-canvas p-10 text-center">
           <p className="text-xl font-semibold">No products in this category yet.</p>
           <p className="mt-2 text-sm text-graphite">Add products from the admin inventory to populate this page.</p>
-          <Link href="/" className="mt-6 inline-block rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-canvas">
+          <Link href="/shop" className="mt-6 inline-block rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-canvas">
             Back to Home
           </Link>
         </section>

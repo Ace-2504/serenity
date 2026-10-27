@@ -5,6 +5,8 @@ import { enqueueJob } from "@/server/jobs/queue";
 import { kickJobs } from "@/server/jobs/runner";
 
 export const dynamic = "force-dynamic";
+/** Background work started here runs within this limit on serverless hosts (see kickJobs). */
+export const maxDuration = 60;
 
 /** Re-runs the rules on the current data (normally automatic after each import). */
 export async function POST(request: NextRequest) {

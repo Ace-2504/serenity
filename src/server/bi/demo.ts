@@ -33,6 +33,12 @@ const PROFILES: Record<DemoPack, Record<DemoSize, DemoProfile>> = {
   }
 };
 
+/**
+ * The two-year demo takes minutes to load. Serverless hosting (VERCEL=1) stops background work
+ * after the request's time limit, so there it is offered only when a separate worker runs jobs.
+ */
+export const fullDemoAllowed = () => process.env.VERCEL !== "1" || process.env.JOBS_MODE === "worker";
+
 export const demoProfile = (pack: DemoPack, size: DemoSize) => PROFILES[pack][size];
 
 /**

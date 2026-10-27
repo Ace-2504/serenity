@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { randomUUID } from "node:crypto";
 import type { Job, Prisma } from "@prisma/client";
 import { loadDemoData, type DemoSize } from "@/server/bi/demo";
@@ -124,7 +125,11 @@ export async function drainJobs(workerId = `web-${randomUUID().slice(0, 8)}`): P
 
 let draining: Promise<number> | null = null;
 
-/** Starts draining in the background unless a dedicated worker is configured. Never throws. */
+/**
+ * Starts draining in the background unless a dedicated worker is configured. Never throws. On
+ * Vercel the function would be frozen once the response is sent, so the drain is registered with
+ * waitUntil and runs until the route's maxDuration; an unfinished job is requeued as stale.
+ */
 export function kickJobs(): void {
   if (process.env.JOBS_MODE === "worker" || draining) return;
   draining = drainJobs()
@@ -135,4 +140,5 @@ export function kickJobs(): void {
     .finally(() => {
       draining = null;
     });
+  if (process.env.VERCEL === "1") waitUntil(draining);
 }

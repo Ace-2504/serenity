@@ -13,6 +13,17 @@ Phase 5 implementation scaffold for the stationery ecommerce project.
 5. API starter routes for health, catalog categories, and admin order queue.
 6. Prisma schema starter aligned with phase 4 data model.
 
+## What is where
+
+* `/`: the Serenity BI product site, with self-serve sign-up (`/signup`) and sign-in (`/login`).
+* `/bi`: the reports, imports, campaigns and assistant for the signed-in user's businesses.
+* `/shop`: the Paper Serenity stationery storefront (the original app), kept as a working data source.
+* `/privacy`: what the software stores and sends. It is not yet a reviewed privacy policy.
+
+## Host it on Vercel
+
+Set `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `TRUST_PROXY=1` and `APP_URL` in the Vercel project and redeploy; migrations run during the build. What works differently when hosted (no live Tally, no two-year demo, no ML without a separate worker): [`docs/platform/09-operations.md` §8](docs/platform/09-operations.md#8-hosting-on-vercel-with-a-hosted-postgres).
+
 ## Run with Docker (recommended for a business)
 
 ```bash
@@ -20,7 +31,7 @@ cp .env.docker.example .env      # then replace every "change-me" (openssl rand 
 docker compose up -d --build     # Postgres, migrations, web app on :3000, background worker
 ```
 
-Sign in at `http://localhost:3000/admin/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`, then open `/bi`. Backups, HTTPS, upgrades and the optional local model server: [`docs/platform/09-operations.md`](docs/platform/09-operations.md).
+Sign in at `http://localhost:3000/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`; you land on `/bi`. Backups, HTTPS, upgrades and the optional local model server: [`docs/platform/09-operations.md`](docs/platform/09-operations.md).
 
 ## Run Locally (development)
 

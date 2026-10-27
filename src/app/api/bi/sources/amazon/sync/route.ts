@@ -7,6 +7,8 @@ import { enqueueJob } from "@/server/jobs/queue";
 import { kickJobs } from "@/server/jobs/runner";
 
 export const dynamic = "force-dynamic";
+/** Background work started here runs within this limit on serverless hosts (see kickJobs). */
+export const maxDuration = 60;
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const body = z.object({ from: date, to: date }).refine((b) => b.from <= b.to, "from must not be after to");

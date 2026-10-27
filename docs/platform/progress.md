@@ -789,3 +789,53 @@ playwright          17 passed (fresh database)
 * **Tally:** run once against a real TallyPrime (even Educational mode) and compare with Tally's Sales Register. The masters request and `EXPLODEFLAG` follow community practice. There is no AlterID incremental sync yet: every sync re-reads the period.
 * **BUSY:** one real export of each register would confirm the suggested mappings. Registers carry no opening stock or receipts and payments.
 * **Amazon:** needs a registered SP-API app and seller authorisation. India's fee-GST event names are assumed to match the settlement report's naming; any mismatch shows up as a deposit mismatch, not silent loss.
+
+## Final product — the website: product site, self-serve sign-up, hosting on Vercel
+
+**What changed**
+* **Product site at `/`** (`src/app/page.tsx`).
+  * It says what Serenity BI does, the questions it answers, how importing and checking work, and how data is kept.
+  * Four screenshots are from the demo businesses (`public/product/`). Each is captioned as fictional, and every report screen shows "(DEMO - fictional business)".
+  * There are no testimonials, customer counts or results claims. A visible note says the importers have been tested on sample files, not yet on many real businesses' exports.
+* **The storefront moved to `/shop`.** Its links and header now point there. The shop header shows only on shop pages, and the product pages have their own header (`ProductNav`).
+* **Sign-in** at `/login` is product-neutral and returns to `/bi` by default. The `/bi` area now sends signed-out visitors to `/login`, not the shop admin's login.
+* **Self-serve sign-up** (`/signup`, `POST /api/auth/signup`).
+  * It creates the account and, if a business name is given, the business with the new user as owner.
+  * `?demo=1` signs up without a business, ready to open a demo.
+  * It is rate-limited per address. Operators can close it with `SIGNUPS_OPEN=0`.
+  * Any signed-in user may now create businesses and demos. Before, only the storefront's platform owner could. These actions have per-user limits.
+* **Business page** (`/bi/business`).
+  * It shows the business's name, trade, members and number of saved imports.
+  * The owner can delete the business by typing its name. Deletion is permanent and cascades to everything imported.
+* **`/privacy` ("Your data")** says what is stored, who can see it, what leaves the server, and how to delete data.
+  * It is marked as not reviewed by a lawyer and not a DPDP Act privacy policy.
+* **Vercel readiness.**
+  * `vercel-build` applies migrations when `DATABASE_URL` is set.
+  * Background jobs are kept alive with `waitUntil`, with `maxDuration = 60` on the routes that start them.
+  * When hosted, live Tally is refused, so the server cannot be pointed at addresses on its own network.
+  * The two-year demo is hidden unless a worker runs jobs.
+  * Setup guide: 09-operations §8.
+
+**Checked in the browser** (production build):
+* The site, sign-up, sign-in, privacy and shop pages load with no horizontal scroll at 1280 px and 390 px.
+* Signing up lands on the new business's Imports page.
+* Deleting it returns to "Get started".
+* A second sign-up with the same email is refused with a clear message.
+
+**Tests (actual results)**
+```
+npm test            22 files, 177 tests passed (new: live Tally refused when hosted)
+npm run test:int    17 files, 129 tests passed (356 s)
+pytest (ml/)        16 passed
+playwright          20 passed (fresh database; new e2e/visitor.spec.ts: product site, sign-up, delete, demo-only sign-up)
+```
+
+**Not verified**
+* A Vercel deployment with a real hosted database. This environment cannot reach `vercel.app`; Vercel's own build check passes on each push.
+* The legal pages. A privacy policy and terms of service need a lawyer before real customers' data is uploaded.
+
+**Known limits**
+* Inviting accountants or analysts from the app is not built.
+* Deleting an account is not built.
+* There is no email verification or password reset.
+* Rate limits are per instance, which is weak on serverless hosting.

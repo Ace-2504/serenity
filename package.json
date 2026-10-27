@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "vercel-build": "bash scripts/vercel-build.sh",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",
+    "@vercel/functions": "3.9.9",
     "cloudinary": "^2.9.0",
     "csv-parse": "^7.0.3",
     "fast-xml-parser": "4.5.7",

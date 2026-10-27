@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkTallyUrl, dayBookRequest, isLanHost, monthChunks, TallyClient, TallyConnectionError } from "@/server/adapters/tally/live";
+import { checkTallyUrl, dayBookRequest, isLanHost, liveTallyAvailable, monthChunks, TallyClient, TallyConnectionError } from "@/server/adapters/tally/live";
 
 describe("live Tally connector", () => {
   it("splits a period into calendar months", () => {
@@ -23,6 +23,13 @@ describe("live Tally connector", () => {
     expect(() => checkTallyUrl("http://tally.example.com:9000", { TALLY_ALLOW_REMOTE: "1" })).not.toThrow();
     expect(() => checkTallyUrl("ftp://localhost:9000")).toThrow(/http/);
     expect(() => checkTallyUrl("http://user:pw@localhost:9000")).toThrow(/user name/);
+  });
+
+  it("is off on a hosted copy, which cannot reach the office network", () => {
+    expect(() => checkTallyUrl("http://192.168.1.20:9000", { VERCEL: "1" })).toThrow(/office/);
+    expect(liveTallyAvailable({ VERCEL: "1" })).toBe(false);
+    expect(liveTallyAvailable({ VERCEL: "1", TALLY_ALLOW_REMOTE: "1" })).toBe(true);
+    expect(liveTallyAvailable({})).toBe(true);
   });
 
   it("reports Tally's own error message", async () => {

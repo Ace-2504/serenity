@@ -101,7 +101,7 @@ export default function CartPage() {
         <section className="rounded-2xl border border-mist bg-canvas p-10 text-center">
           <p className="font-display text-2xl">Your cart is empty</p>
           <p className="mt-2 text-sm text-graphite">Browse the store and add items to get started.</p>
-          <Link href="/" className="mt-6 inline-block rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-canvas">
+          <Link href="/shop" className="mt-6 inline-block rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-canvas">
             Continue Shopping
           </Link>
         </section>
@@ -194,7 +194,7 @@ export default function CartPage() {
               Proceed to Checkout
             </Link>
             <Link
-              href="/"
+              href="/shop"
               className="mt-2 block rounded-full border border-mist px-4 py-2.5 text-center text-sm font-medium text-graphite hover:border-ink hover:text-ink"
             >
               Continue Shopping

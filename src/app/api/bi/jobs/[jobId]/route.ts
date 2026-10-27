@@ -3,6 +3,8 @@ import { jsonError, requireBi } from "@/server/bi/api";
 import { kickJobs } from "@/server/jobs/runner";
 
 export const dynamic = "force-dynamic";
+/** Background work started here runs within this limit on serverless hosts (see kickJobs). */
+export const maxDuration = 60;
 
 /** Job status for the caller's business. Polling also nudges the queue in case a run was interrupted. */
 export async function GET(request: NextRequest, { params }: { params: { jobId: string } }) {

@@ -17,11 +17,10 @@ export async function requireBi(request: NextRequest, roles?: MembershipRole[]):
   return resolved.context;
 }
 
-/** For actions that create businesses: needs a signed-in platform owner, not a membership. */
-export async function requirePlatformOwner(request: NextRequest): Promise<NonNullable<Resolved> | NextResponse> {
+/** For actions that create businesses: any signed-in user may, and becomes the new business's owner. */
+export async function requireSignedIn(request: NextRequest): Promise<NonNullable<Resolved> | NextResponse> {
   const resolved = await getBiContextFromRequest(request);
   if (!resolved) return jsonError(401, "UNAUTHENTICATED", "Sign in first");
-  if (!resolved.sessionRoles.includes("owner_admin")) return jsonError(403, "FORBIDDEN", "Only the platform owner can create businesses");
   return resolved;
 }
 

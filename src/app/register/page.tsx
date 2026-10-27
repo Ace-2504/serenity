@@ -15,7 +15,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 function RegisterForm() {
   const params = useSearchParams();
   const errorCode = params.get("error");
-  const next = params.get("next") || "/";
+  const next = params.get("next") || "/shop";
   const confirmRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 

@@ -61,6 +61,13 @@ export const dayBookRequest = (company: string, from: string, to: string) => `<E
 </ENVELOPE>`;
 
 /**
+ * Live sync needs the app on the same network as Tally. A hosted copy (VERCEL=1) cannot reach an
+ * office network, and its own private addresses are not the business's, so it is off there unless
+ * the operator has secured a public Tally address (TALLY_ALLOW_REMOTE=1).
+ */
+export const liveTallyAvailable = (env: Record<string, string | undefined> = process.env) => env.VERCEL !== "1" || env.TALLY_ALLOW_REMOTE === "1";
+
+/**
  * Tally runs on the business's own network, so only local and private addresses are accepted
  * unless the operator sets TALLY_ALLOW_REMOTE=1. This keeps the sync from being used to make the
  * server call arbitrary internet addresses.
@@ -74,6 +81,7 @@ export function checkTallyUrl(raw: string, env: Record<string, string | undefine
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new TallyConnectionError("The Tally address must start with http:// or https://");
   if (url.username || url.password) throw new TallyConnectionError("The Tally address must not contain a user name or password");
+  if (!liveTallyAvailable(env)) throw new TallyConnectionError("Live sync works when Serenity runs on a computer in your office. On the hosted service, export the Day Book from Tally and upload it instead.");
   if (!isLanHost(url.hostname) && env.TALLY_ALLOW_REMOTE !== "1") {
     throw new TallyConnectionError(`${url.hostname} is not on this machine or office network. Tally's server should not be reachable from the internet; set TALLY_ALLOW_REMOTE=1 only if you have secured it.`);
   }

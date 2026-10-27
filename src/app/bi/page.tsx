@@ -4,6 +4,7 @@ import type { FindingStatus } from "@prisma/client";
 import { FindingActions } from "@/components/bi/finding-actions";
 import { formatDate, formatDateTime, formatInrCompact, formatPct } from "@/components/bi/format";
 import { Onboarding } from "@/components/bi/onboarding";
+import { fullDemoAllowed } from "@/server/bi/demo";
 import { RefreshFindingsButton } from "@/components/bi/refresh-findings-button";
 import { StatTile } from "@/components/bi/stat-tile";
 import { stockPositions } from "@/server/analytics/inventory";
@@ -33,7 +34,7 @@ function delta(now: number | null, then: number | null, unit: "pct" | "pp") {
 export default async function Overview({ searchParams }: { searchParams: { status?: string; all?: string } }) {
   const resolved = await getBiContext();
   const bi = resolved?.context;
-  if (!bi) return <Onboarding canCreate={resolved?.sessionRoles.includes("owner_admin") ?? false} />;
+  if (!bi) return <Onboarding fullDemo={fullDemoAllowed()} />;
   const span = await dataSpan(bi.db);
   if (!span) {
     return (

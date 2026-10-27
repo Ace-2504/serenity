@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function BiLayout({ children }: { children: React.ReactNode }) {
   const resolved = await getBiContext();
-  if (!resolved) redirect("/admin/login");
+  if (!resolved) redirect("/login?next=/bi");
   const tenant = resolved.context?.tenant;
   const job = resolved.context
     ? await resolved.context.db.job.findFirst({ where: { status: { in: ["queued", "running"] } }, orderBy: { createdAt: "desc" }, select: { id: true, progress: true } })
@@ -42,6 +42,7 @@ export default async function BiLayout({ children }: { children: React.ReactNode
             { href: "/bi/assistant" as const, label: "Ask" },
             { href: "/bi/imports" as const, label: "Imports" },
             { href: "/bi/metrics" as const, label: "Definitions" },
+            ...(tenant ? [{ href: "/bi/business" as const, label: "Business" }] : []),
             ...(resolved.context && CAN_IMPORT.includes(resolved.context.role) ? [{ href: "/bi/system" as const, label: "System" }] : [])
           ].map((link) => (
             <Link key={link.href} href={link.href} className="rounded-full border border-mist px-4 py-2 text-sm font-semibold hover:border-ink hover:bg-paper">

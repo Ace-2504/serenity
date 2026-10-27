@@ -56,6 +56,8 @@ export const LIMITS = {
   loginPerEmail: new RateLimiter(10, 15 * MINUTE),
   loginPerIp: new RateLimiter(50, 15 * MINUTE),
   registerPerIp: new RateLimiter(10, 60 * MINUTE),
+  businessesPerUser: new RateLimiter(10, 60 * MINUTE),
+  demosPerUser: new RateLimiter(6, 60 * MINUTE),
   importsPerUser: new RateLimiter(30, 60 * MINUTE),
   assistantPerUser: new RateLimiter(20, MINUTE),
   draftsPerUser: new RateLimiter(20, MINUTE),

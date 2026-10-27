@@ -46,7 +46,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
     <main className="min-h-screen w-full bg-canvas px-4 pb-16 pt-6 md:px-8 xl:px-12">
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-1.5 text-sm text-graphite">
-        <Link href="/" className="hover:text-ink">Home</Link>
+        <Link href="/shop" className="hover:text-ink">Home</Link>
         <span className="text-mist">/</span>
         <Link href={`/c/${product.category.slug}`} className="hover:text-ink">{product.category.name}</Link>
         <span className="text-mist">/</span>
