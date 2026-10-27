@@ -39,7 +39,11 @@ export type ImportSummary = {
   controlTotals: ControlReconciliation;
   /** Set on commit: the rebuilt stock ledger and how it compares with the source's closing stock. */
   ledger?: LedgerSummary & { stockCheck: StockCheck };
+  /** Set when a file adapter (e.g. Tally XML) produced the template files. */
+  adapter?: AdapterSummary;
 };
+
+export type AdapterSummary = { name: string; verified: false; note: string; details: unknown };
 
 export type StockCheck = { items: number; qtyMismatches: number; valueMismatches: number; valueUnknownInLedger: number; examples: string[] };
 
@@ -63,9 +67,10 @@ export class ImportError extends Error {
 
 export async function stageImport(
   db: TenantDb,
-  input: { tenantId: string; dataSourceId: string; files: UploadedFile[]; userId?: string }
+  input: { tenantId: string; dataSourceId: string; files: UploadedFile[]; userId?: string; adapter?: { summary: AdapterSummary; issues: Issue[] } }
 ): Promise<StageResult> {
   const log = new IssueLog();
+  for (const issue of input.adapter?.issues ?? []) log.add(issue);
   const bundle = parseBundle(input.files, log);
 
   return db.$transaction(async (tx) => {
@@ -79,6 +84,7 @@ export async function stageImport(
     const previous = await tx.importBatch.findFirst({ where: { dataSourceId: input.dataSourceId, fileSha256: bundle.bundleSha256, status: { not: "committed" } } });
 
     const { summary } = await analyse(tx, input.tenantId, input.dataSourceId, bundle, log);
+    if (input.adapter) summary.adapter = input.adapter.summary;
     const status = log.errorCount > 0 ? ("rejected" as const) : ("validated" as const);
 
     // Re-staging the same bytes replaces the earlier, uncommitted attempt.
@@ -539,7 +545,8 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         discountAmount: sum("discountAmount"),
         taxableAmount: sum("taxableAmount"),
         taxAmount: sum("taxAmount"),
-        totalInclTax: sum("taxableAmount").add(sum("taxAmount")),
+        roundOff: v.adjustment ?? zero,
+        totalInclTax: sum("taxableAmount").add(sum("taxAmount")).add(v.adjustment ?? zero),
         status: "active",
         originalVoucherId: originalType && v.originalNumber ? (voucherIds.get(`${originalType}|${v.originalNumber}`) ?? null) : null
       }
@@ -619,6 +626,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         sourceVersion: 1,
         discountAmount: zero,
         taxAmount: zero,
+        roundOff: zero,
         status: "active",
         ...h.data,
         id: h.id,
@@ -760,6 +768,7 @@ const COLUMNS = {
     discountAmount: "numeric",
     taxableAmount: "numeric",
     taxAmount: "numeric",
+    roundOff: "numeric",
     totalInclTax: "numeric",
     status: '"VoucherStatus"',
     originalVoucherId: "text",

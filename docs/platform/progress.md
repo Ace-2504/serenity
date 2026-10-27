@@ -378,3 +378,47 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 * Rule thresholds are fixed constants (`RULE_CONFIG`), not yet per-business settings.
 * Realised ₹ figures exist only where directly measurable: stock value, margin, discounts, customer GP and channel contribution per unit. For DSO, payer delay, concentration and stockouts, only the metric and verdict are recorded.
 * Snooze and check dates count data days, so a business that imports rarely sees them later in calendar time.
+
+---
+
+## M4 — Tally XML file adapter (verified on fixtures only)
+
+**What was built**
+* **Adapter** (`src/server/adapters/tally/`): `decode.ts` (encodings, control-character references), `collect.ts` (XML to objects, DTD guard), `values.ts` (Tally amounts, quantities, rates, dates, GST state codes) and `convert.ts` (Tally to the import template). What it handles and what it doesn't is tabulated in `07-integration-research.md`.
+* **Upload API.** `POST /api/bi/imports` accepts Tally XML files (masters + Day Book), converts them and stages them under a `tally_xml` data source. The adapter's warnings join the import's issues. The review screen shows what was converted and skipped, with the label "tested on sample files only".
+* **Template.** Optional voucher column `adjustment_incl_tax` (round-off, freight, packing). It is added to the bill total, so receivables match the party's bills, but not to product sales. It is stored in `Voucher.roundOff` and absent from the content hash when zero, so existing imports are unaffected.
+* **Dependency:** `fast-xml-parser` 4.5.7 (MIT, one dependency). The lockfile diff is limited to it and `strnum`.
+
+**Why file-based first.** The owner has no Tally access, and file exports work with every Tally release without connectivity settings. The live HTTP sync (M10b) needs a real Tally instance to verify against.
+
+**Tests (actual results)**
+```
+npm test            15 files, 114 tests passed (Tally adapter: 14)
+npm run test:int    8 files, 73 tests passed (Tally end to end: 6)
+lint / tsc / build  clean (1 pre-existing lint warning)
+```
+* **Values and encoding:**
+  * Tally sign and units parsing;
+  * UTF-16 LE with and without BOM gives the same conversion as UTF-8;
+  * `&#4;` stripped;
+  * truncated XML and DTD/ENTITY input refused.
+* **Conversion (hand-computed fixture, 12 vouchers):**
+  * imported: 4 sales, 1 credit note, 1 purchase, 2 receipts, 1 payment;
+  * skipped and reported: cancelled, journal, stock journal (with a stock warning);
+  * line arithmetic, GST per line (including a rate change on 1 May), round-off and freight kept out of sales;
+  * bill-reference mapping (`INV-3` → voucher 3, `SUP/77` → P-1), free quantity, ₹500 on-account receipt reported;
+  * control totals equal the hand-computed register totals;
+  * an unbalanced voucher is rejected, not forced.
+* **End to end** (upload API → stage → commit):
+  * the stock ledger rebuilt from Tally data matches Tally's closing stock exactly (quantity and value);
+  * open receivables are exactly bill 2 ₹59.00, bill 3 ₹1,228.00 and bill 5 ₹118.00;
+  * net sales ₹2,554.00, with COGS at Tally's average cost;
+  * re-uploading the same export is a no-op;
+  * mixed XML + CSV uploads are refused.
+
+**Known limitations**
+* **Not verified against a real TallyPrime export.** Element names follow open-source connectors and documentation excerpts; real files may differ by release and settings.
+* Not imported: stock journals, delivery/receipt notes, rejections, journals, contras, opening bill-wise balances, batch/godown detail, multi-currency detail and Bills Outstanding reports. Each is reported when skipped.
+* Keys are voucher type + number and ledger/item names, not Tally GUIDs. Renamed ledgers or renumbered vouchers look like new records.
+* The original XML is not stored; the converted template files are, with their SHA-256.
+* Tally export menu paths differ by release; the upload screen describes the export generically.

@@ -42,6 +42,7 @@ export default async function ImportPage({ params }: { params: { importId: strin
           </div>
           {batch.status === "failed" && batch.error && <p className="mt-2 text-sm text-terracotta">Last attempt failed: {batch.error}</p>}
           {batch.status === "rejected" && <p className="mt-2 text-sm text-terracotta">Fix the errors below in your files and upload them again. Nothing has been saved.</p>}
+          {summary.adapter && <AdapterNote adapter={summary.adapter} />}
         </div>
         {canCommit && <CommitButton importId={batch.id} label={batch.status === "failed" ? "Try the import again" : "Import into my books"} />}
       </section>
@@ -165,6 +166,27 @@ export default async function ImportPage({ params }: { params: { importId: strin
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+type TallyDetails = { company: string | null; vouchersRead: number; imported: Record<string, number>; skipped: Record<string, { count: number; examples: string[] }> };
+
+/** What a file adapter did, and that it is not verified against real exports yet. */
+function AdapterNote({ adapter }: { adapter: NonNullable<ImportSummary["adapter"]> }) {
+  const d = adapter.details as TallyDetails;
+  const imported = Object.values(d.imported ?? {}).reduce((s, n) => s + n, 0);
+  const skipped = Object.entries(d.skipped ?? {});
+  return (
+    <div role="note" className="mt-3 max-w-2xl rounded-xl2 border border-mustard bg-mustard/15 p-3 text-sm">
+      <p>
+        <strong>{adapter.name}.</strong> {adapter.note}
+      </p>
+      <p className="mt-1 text-graphite">
+        {d.company ? `${d.company}: ` : ""}
+        {imported} of {d.vouchersRead} vouchers converted.
+        {skipped.length > 0 && ` Not imported: ${skipped.map(([reason, s]) => `${s.count} × ${reason}`).join("; ")}.`}
+      </p>
     </div>
   );
 }

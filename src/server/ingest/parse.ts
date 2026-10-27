@@ -79,6 +79,11 @@ export type VoucherDraft = {
   orderRef: string | null;
   dueDate: string | null;
   originalNumber: string | null;
+  /**
+   * Bill-level amount that is not an item line (round-off, freight, packing, incl. any GST on
+   * it). Added to the bill total only. Absent when zero, so older imports hash the same.
+   */
+  adjustment?: Decimal;
   lines: LineDraft[];
 };
 
@@ -402,6 +407,7 @@ function parseVouchers(rows: Row[], log: IssueLog): VoucherDraft[] {
     const taxable = money(r, "taxable_amount");
     const taxRate = r.decimal("gst_rate", { required: true, scale: 2 });
     const tax = money(r, "tax_amount");
+    const adjustment = r.decimal("adjustment_incl_tax", { scale: 2, allowNegative: true }) ?? new D(0);
     if (type === null || number === null || date === null || partyCode === null || lineNo === null || itemCode === null) continue;
     if (qty === null || rate === null || taxable === null || taxRate === null || tax === null) continue;
 
@@ -416,10 +422,11 @@ function parseVouchers(rows: Row[], log: IssueLog): VoucherDraft[] {
     const key = `${type}|${number}`;
     let voucher = byKey.get(key);
     if (!voucher) {
-      voucher = { key, seq: byKey.size, type, number, ...header, lines: [] };
+      voucher = { key, seq: byKey.size, type, number, ...header, ...(adjustment.isZero() ? {} : { adjustment }), lines: [] };
       byKey.set(key, voucher);
     } else {
-      const changed = (Object.keys(header) as (keyof typeof header)[]).filter((field) => voucher![field] !== header[field]);
+      const changed: string[] = (Object.keys(header) as (keyof typeof header)[]).filter((field) => voucher![field] !== header[field]);
+      if (!(voucher.adjustment ?? new D(0)).eq(adjustment)) changed.push("adjustment_incl_tax");
       if (changed.length > 0) {
         log.error("VOUCHER_HEADER_MISMATCH", "voucher", `${number}: ${changed.join(", ")} differ between lines of the same voucher`, { rowRef: row.rowRef });
         continue;

@@ -42,6 +42,39 @@ Confidence: **H** = read in full / confirmed in working code · **M** = official
 3. **Fixtures:** synthetic UTF-16 XML built from field lists documented in the open-source connector config, with deliberate `&#4;` junk and truncation cases. Real recorded responses (Educational mode or a pilot business) replace them when available. Until then the adapter is labelled **"verified on fixtures only"** in the UI and README.
 4. **BUSY:** Excel/XML upload adapter with saved column mappings; API plugin out of scope.
 
+### Status of the Tally XML file adapter (M4, built 2026-10-27)
+
+`src/server/adapters/tally/` converts a TallyPrime "Data Interchange" XML export (masters plus the Day Book) into the import template. The result then goes through the normal validation, staging, reconciliation and commit.
+
+**Verified on fixtures only.** The fixtures are hand-written from the export structure described above. They have never been compared with a file exported by a real TallyPrime, and the UI says so on every Tally import.
+
+| Handled | How |
+|---|---|
+| UTF-8 / UTF-16 LE / UTF-16 BE, with or without BOM | byte-order detection |
+| `&#4;` and other control-character references | stripped before parsing (count reported) |
+| DTD / ENTITY declarations | refused (entity-expansion guard; Tally never writes them) |
+| Truncated or malformed XML | upload refused with the file name; nothing staged |
+| Custom voucher types | resolved through `VOUCHERTYPE` masters to Sales, Purchase, Credit Note, Debit Note, Receipt or Payment |
+| Invoice view and accounting view | items read from `ALLINVENTORYENTRIES.LIST`/`INVENTORYENTRIES.LIST` and from `INVENTORYALLOCATIONS.LIST` under ledger entries |
+| Debit-negative amounts | sign per voucher type. Each voucher must balance (items + GST + other ledgers = party amount) or it is rejected |
+| GST | line rate from the item's `GSTDETAILS` valid on the voucher date (else the voucher's effective rate if it is a standard slab). Line GST allocated to equal the GST ledgers |
+| Round-off, freight, cess, non-item sales lines | kept in the bill total (`adjustment_incl_tax`), not in product sales; reported |
+| Bill references | the "New Ref" name identifies the bill. Receipts, payments and credit notes link through "Agst Ref". On-account and advance amounts are reported, not imported |
+| Free quantity (billed < actual) | stock moves the actual quantity; the price is spread over it |
+| Opening and closing stock | from `STOCKITEM` masters; closing stock feeds the stock check against our rebuilt ledger |
+
+**Not handled yet:**
+* Stock journals, delivery and receipt notes, rejections: skipped with a warning that stock will differ.
+* Journals and contras.
+* Opening bill-wise balances.
+* Multi-currency details.
+* Batch/godown allocations.
+* Bills Outstanding reports.
+
+**Keys.** Records are keyed like the template (voucher type + number, ledger and item names), not by Tally GUID. Renumbering a voucher in Tally therefore creates a new record and marks the old one deleted at source. GUID-based keys come with the live sync (M10b).
+
+**Control totals.** These are computed from the ledger side of each voucher. Because every voucher must balance, they confirm the conversion end to end, but they cannot prove the export is complete. Compare with Tally's Sales and Purchase Register for the same period.
+
 ## Channels and LLM runtime
 
 | Item | Finding | Conf. |

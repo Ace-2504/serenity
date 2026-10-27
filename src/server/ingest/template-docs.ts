@@ -72,7 +72,12 @@ export const TEMPLATE_DOCS: FileDoc[] = [
       col("discount_amount", false, "Discount on the line in rupees."),
       col("taxable_amount", true, "qty x rate - discount, checked to the paisa."),
       col("gst_rate", true, "GST %."),
-      col("tax_amount", true, "GST on the line; differences up to Rs 1 from the computed amount are flagged, more is rejected.")
+      col("tax_amount", true, "GST on the line; differences up to Rs 1 from the computed amount are flagged, more is rejected."),
+      col(
+        "adjustment_incl_tax",
+        false,
+        "Bill-level amount that is not an item line: round-off, freight, packing (including any GST on it). Same value on every line of the voucher; added to the bill total only, not to sales."
+      )
     ]
   },
   {
@@ -161,7 +166,8 @@ export const TEMPLATE_EXAMPLES: Record<string, string> = {
       discount_amount: "20.00",
       taxable_amount: "380.00",
       gst_rate: "12.00",
-      tax_amount: "45.60"
+      tax_amount: "45.60",
+      adjustment_incl_tax: "0.40"
     }
   ]),
   [TEMPLATE_FILES.controlTotals]: toCsv(

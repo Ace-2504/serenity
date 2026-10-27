@@ -412,7 +412,8 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     discount_amount: formatPaise(line.discount),
     taxable_amount: formatPaise(line.taxable),
     gst_rate: line.gstPct.toFixed(2),
-    tax_amount: formatPaise(line.tax)
+    tax_amount: formatPaise(line.tax),
+    adjustment_incl_tax: ""
   });
 
   const lostDemand: Record<string, number> = {};

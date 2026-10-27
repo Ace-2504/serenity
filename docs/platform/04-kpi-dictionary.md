@@ -71,7 +71,7 @@ This is the authoritative definition list. The code registry (`src/server/metric
 
 | ID | Metric | Formula | Notes |
 |---|---|---|---|
-| `ar_total` | Trade receivables | Σ pendingInclTax of receivable bills at asOf | From OutstandingSnapshot; if absent, from the ledger with FIFO allocation (labelled) |
+| `ar_total` | Trade receivables | Σ pendingInclTax of receivable bills at asOf (bill total = taxable + GST + bill-level adjustments such as round-off or freight) | From OutstandingSnapshot; if absent, from the ledger with FIFO allocation (labelled) |
 | `ar_ageing` | AR ageing | pending by days past **due date** in buckets: not due / 1–30 / 31–60 / 61–90 / > 90 | If dueDate is missing → billDate + party creditDays → tenant default (labelled) |
 | `overdue_ar` | Overdue receivables | Σ pending where asOf > dueDate | |
 | `dso` | Days sales outstanding | avg AR ÷ credit sales incl. GST(P) × days(P) | Numerator and denominator are both GST-inclusive for consistency. Avg AR = mean of AR at the period's opening, month ends and closing, rebuilt from bills, notes and allocations (cross-checked against the source's outstanding report). A credit sale is an invoice not fully settled on its own date |

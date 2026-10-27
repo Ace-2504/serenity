@@ -36,18 +36,21 @@ export function UploadForm() {
   return (
     <form onSubmit={submit} className="space-y-3">
       <label htmlFor="files" className="block text-sm font-semibold">
-        Template files (CSV)
+        Template files (CSV) or Tally XML exports
       </label>
       <input
         id="files"
         name="files"
         type="file"
         multiple
-        accept=".csv,text/csv"
+        accept=".csv,text/csv,.xml,text/xml,application/xml"
         onChange={(event) => setFiles(event.target.files)}
         className="block w-full rounded-xl2 border border-mist bg-canvas p-3 text-sm file:mr-3 file:rounded-full file:border-0 file:bg-ink file:px-4 file:py-2 file:text-canvas"
       />
-      <p className="text-xs text-graphite">Select all files at once: items, parties, vouchers and control totals are required. Nothing is saved until you review and confirm.</p>
+      <p className="text-xs text-graphite">
+        Select all files at once: for the template, items, parties, vouchers and control totals are required. From TallyPrime, export the masters and the Day Book as XML
+        (Data Interchange) and upload both. Nothing is saved until you review and confirm.
+      </p>
       <button
         type="submit"
         disabled={busy}

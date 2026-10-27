@@ -62,7 +62,8 @@ export const VOUCHER_COLUMNS = [
   "discount_amount",
   "taxable_amount",
   "gst_rate",
-  "tax_amount"
+  "tax_amount",
+  "adjustment_incl_tax"
 ] as const;
 
 /** One row per bill allocation; a receipt settling three bills has three rows. */

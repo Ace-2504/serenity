@@ -65,6 +65,7 @@ const line = (over: Partial<VoucherRow> = {}): VoucherRow => ({
   taxable_amount: "380.00",
   gst_rate: "12.00",
   tax_amount: "45.60",
+  adjustment_incl_tax: "",
   ...over
 });
 const controls = (over: Record<string, string> = {}): ControlTotalRow[] =>
@@ -253,5 +254,24 @@ describe("cross-row checks", () => {
 
   it("warns when opening stock has no value", () => {
     expect(run(miniFiles({ items: [item({ opening_value: "" }), item({ item_code: "PEN-1" })] })).codes).toEqual(["warning:MISSING_OPENING_VALUE"]);
+  });
+});
+
+describe("bill-level adjustments (round-off, freight)", () => {
+  it("adds the adjustment to the bill only, not to sales", () => {
+    const { bundle, codes, reconciliation } = run(miniFiles({ vouchers: [line({ adjustment_incl_tax: "0.40" })] }));
+    expect(codes).toEqual([]);
+    expect(bundle.vouchers[0].adjustment?.toFixed(2)).toBe("0.40");
+    expect(reconciliation.every((r) => r.ok)).toBe(true);
+  });
+
+  it("leaves the voucher's content hash unchanged when there is no adjustment", () => {
+    const { bundle } = run(miniFiles());
+    expect("adjustment" in bundle.vouchers[0]).toBe(false);
+  });
+
+  it("rejects different adjustments on lines of the same voucher", () => {
+    const vouchers = [line({ adjustment_incl_tax: "0.40" }), line({ line_no: "2", adjustment_incl_tax: "-0.10" })];
+    expect(run(miniFiles({ vouchers })).codes).toContain("error:VOUCHER_HEADER_MISMATCH");
   });
 });
