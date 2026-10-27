@@ -408,6 +408,9 @@ model Tenant {
   stockSnapshots       StockSnapshot[]
   outstandingSnapshots OutstandingSnapshot[]
   auditLogs            AuditLog[]
+  importFiles          ImportFile[]
+  channelCharges       ChannelCharge[]
+  billAllocations      BillAllocation[]
 }
 
 model Membership {
@@ -444,29 +447,33 @@ model DataSource {
 }
 
 model ImportBatch {
-  id             String         @id @default(uuid())
+  id             String                @id @default(uuid())
   tenantId       String
   dataSourceId   String
-  status         ImportStatus   @default(staged)
+  status         ImportStatus          @default(staged)
   fileName       String?
   fileSha256     String?
-  periodFrom     DateTime?      @db.Date
-  periodTo       DateTime?      @db.Date
-  counts         Json           @default("{}")
+  periodFrom     DateTime?             @db.Date
+  periodTo       DateTime?             @db.Date
+  counts         Json                  @default("{}")
   controlTotals  Json?
   reconciliation Json?
   error          String?
   createdById    String?
-  createdAt      DateTime       @default(now())
+  createdAt      DateTime              @default(now())
   committedAt    DateTime?
-  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  dataSource     DataSource     @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dataSource     DataSource            @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
   issues         ImportIssue[]
   sourceRecords  SourceRecord[]
+  files          ImportFile[]
+  stockSnapshots StockSnapshot[]
+  outstanding    OutstandingSnapshot[]
 
   @@unique([id, tenantId])
-  @@unique([dataSourceId, fileSha256])
+  @@index([dataSourceId, fileSha256])
   @@index([tenantId, createdAt])
+  @@index([tenantId, dataSourceId])
 }
 
 model ImportIssue {
@@ -488,7 +495,7 @@ model ImportIssue {
 /// Raw source payload, versioned. Same sourceKey with a different contentHash is a
 /// correction: a new version is written and the previous one is superseded.
 model SourceRecord {
-  id            String      @id @default(uuid())
+  id            String          @id @default(uuid())
   tenantId      String
   dataSourceId  String
   importBatchId String
@@ -498,46 +505,50 @@ model SourceRecord {
   contentHash   String
   payload       Json
   supersededAt  DateTime?
-  createdAt     DateTime    @default(now())
-  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  dataSource    DataSource  @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
-  importBatch   ImportBatch @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dataSource    DataSource      @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  importBatch   ImportBatch     @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
   parties       Party[]
   items         Item[]
   vouchers      Voucher[]
+  charges       ChannelCharge[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, entity, sourceKey, version])
   @@index([tenantId, dataSourceId, entity, sourceKey])
+  @@index([tenantId, importBatchId])
 }
 
 model Party {
-  id             String                @id @default(uuid())
-  tenantId       String
-  dataSourceId   String
-  sourceKey      String
-  sourceRecordId String
-  name           String
-  kind           PartyKind
-  /// Walk-in / cash parties are excluded from customer analytics.
-  isWalkIn       Boolean               @default(false)
-  gstin          String?
-  stateCode      String?
-  city           String?
-  segmentTag     String?
-  creditDays     Int?
-  phone          String?
-  email          String?
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
-  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sourceRecord   SourceRecord          @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
-  vouchers       Voucher[]
-  outstanding    OutstandingSnapshot[]
+  id              String                @id @default(uuid())
+  tenantId        String
+  dataSourceId    String
+  sourceKey       String
+  sourceRecordId  String
+  name            String
+  kind            PartyKind
+  /// Counter cash sales and marketplaces: individual buyers are not identifiable,
+  /// so these parties are excluded from customer analytics.
+  anonymousBuyers Boolean               @default(false)
+  gstin           String?
+  stateCode       String?
+  city            String?
+  segmentTag      String?
+  creditDays      Int?
+  phone           String?
+  email           String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord    SourceRecord          @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  vouchers        Voucher[]
+  outstanding     OutstandingSnapshot[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, sourceKey])
   @@index([tenantId, kind])
+  @@index([tenantId, sourceRecordId])
 }
 
 model ItemGroup {
@@ -583,6 +594,7 @@ model Item {
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, sourceKey])
   @@index([tenantId, itemGroupId])
+  @@index([tenantId, sourceRecordId])
 }
 
 model Batch {
@@ -605,38 +617,47 @@ model Batch {
 }
 
 model Voucher {
-  id                String        @id @default(uuid())
-  tenantId          String
-  dataSourceId      String
-  sourceKey         String
-  sourceVersion     Int           @default(1)
-  sourceRecordId    String
-  type              VoucherType
-  number            String
-  date              DateTime      @db.Date
-  partyId           String?
-  dueDate           DateTime?     @db.Date
-  channel           String?
+  id                  String           @id @default(uuid())
+  tenantId            String
+  dataSourceId        String
+  sourceKey           String
+  sourceVersion       Int              @default(1)
+  sourceRecordId      String
+  type                VoucherType
+  number              String
+  date                DateTime         @db.Date
+  partyId             String?
+  dueDate             DateTime?        @db.Date
+  channel             String?
+  /// Platform order id (marketplaces), used to join channel charges.
+  orderRef            String?
   /// Header totals as stated by the source; kept for reconciliation against lines.
-  grossAmount       Decimal       @db.Decimal(18, 2)
-  discountAmount    Decimal       @default(0) @db.Decimal(18, 2)
-  taxableAmount     Decimal       @db.Decimal(18, 2)
-  taxAmount         Decimal       @default(0) @db.Decimal(18, 2)
-  roundOff          Decimal       @default(0) @db.Decimal(18, 2)
-  totalInclTax      Decimal       @db.Decimal(18, 2)
-  status            VoucherStatus @default(active)
-  originalVoucherId String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sourceRecord      SourceRecord  @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
-  party             Party?        @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  lines             VoucherLine[]
+  grossAmount         Decimal          @db.Decimal(18, 2)
+  discountAmount      Decimal          @default(0) @db.Decimal(18, 2)
+  taxableAmount       Decimal          @db.Decimal(18, 2)
+  taxAmount           Decimal          @default(0) @db.Decimal(18, 2)
+  roundOff            Decimal          @default(0) @db.Decimal(18, 2)
+  totalInclTax        Decimal          @db.Decimal(18, 2)
+  status              VoucherStatus    @default(active)
+  originalVoucherId   String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord        SourceRecord     @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  party               Party?           @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  lines               VoucherLine[]
+  /// Allocations this receipt/payment makes against bills.
+  allocationsMade     BillAllocation[] @relation("SettlementAllocations")
+  /// Allocations received by this bill from receipts/payments.
+  allocationsReceived BillAllocation[] @relation("BillAllocations")
+  channelCharges      ChannelCharge[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, sourceKey])
   @@index([tenantId, type, date])
+  @@index([tenantId, orderRef])
   @@index([tenantId, partyId, date])
+  @@index([tenantId, sourceRecordId])
 }
 
 model VoucherLine {
@@ -667,6 +688,8 @@ model VoucherLine {
   @@unique([id, tenantId])
   @@unique([voucherId, lineNo])
   @@index([tenantId, itemId])
+  @@index([tenantId, voucherId])
+  @@index([tenantId, batchId])
 }
 
 /// Perpetual stock ledger derived from vouchers on commit (weighted-average cost).
@@ -693,25 +716,31 @@ model StockMovement {
 
   @@unique([tenantId, itemId, seq])
   @@index([tenantId, itemId, date])
+  @@index([tenantId, batchId])
+  @@index([tenantId, voucherLineId])
 }
 
 /// Closing stock as reported by the source system (used to reconcile the derived ledger).
 model StockSnapshot {
-  id              String   @id @default(uuid())
+  id              String      @id @default(uuid())
   tenantId        String
   itemId          String
   batchId         String?
   dataSourceId    String
-  asOf            DateTime @db.Date
-  qty             Decimal  @db.Decimal(18, 3)
-  value           Decimal? @db.Decimal(18, 2)
+  importBatchId   String
+  asOf            DateTime    @db.Date
+  qty             Decimal     @db.Decimal(18, 3)
+  value           Decimal?    @db.Decimal(18, 2)
   valuationMethod String?
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  item            Item     @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Cascade)
-  batch           Batch?   @relation(fields: [batchId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  tenant          Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item            Item        @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  batch           Batch?      @relation(fields: [batchId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  importBatch     ImportBatch @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([tenantId, asOf])
   @@index([tenantId, itemId, asOf])
+  @@index([tenantId, batchId])
+  @@index([tenantId, importBatchId])
 }
 
 /// Bill-wise receivables / payables as reported by the source at a point in time.
@@ -720,6 +749,7 @@ model OutstandingSnapshot {
   tenantId       String
   partyId        String
   dataSourceId   String
+  importBatchId  String
   side           OutstandingSide
   billRef        String
   billDate       DateTime        @db.Date
@@ -729,8 +759,11 @@ model OutstandingSnapshot {
   asOf           DateTime        @db.Date
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   party          Party           @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  importBatch    ImportBatch     @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([tenantId, side, asOf])
+  @@index([tenantId, importBatchId])
+  @@index([tenantId, partyId])
 }
 
 model AuditLog {
@@ -747,4 +780,74 @@ model AuditLog {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, at])
+}
+
+/// Uploaded source files, kept so a staged import can be committed later from the exact
+/// bytes that were validated (checked by SHA-256), and for audit.
+model ImportFile {
+  id            String      @id @default(uuid())
+  tenantId      String
+  importBatchId String
+  name          String
+  sha256        String
+  sizeBytes     Int
+  content       Bytes
+  createdAt     DateTime    @default(now())
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  importBatch   ImportBatch @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([importBatchId, name])
+  @@index([tenantId])
+  @@index([tenantId, importBatchId])
+}
+
+/// A receipt or payment voucher settling (part of) a bill.
+model BillAllocation {
+  id                  String  @id @default(uuid())
+  tenantId            String
+  settlementVoucherId String
+  billVoucherId       String
+  amount              Decimal @db.Decimal(18, 2)
+  tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  settlementVoucher   Voucher @relation("SettlementAllocations", fields: [settlementVoucherId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  billVoucher         Voucher @relation("BillAllocations", fields: [billVoucherId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@index([tenantId, billVoucherId])
+  @@index([tenantId, settlementVoucherId])
+}
+
+/// A deduction a sales channel makes from its payout (marketplace fee, shipping, gateway
+/// fee) or tax it withholds (GST TCS, income-tax TDS). See docs/platform/03-data-model.md.
+model ChannelCharge {
+  id              String        @id @default(uuid())
+  tenantId        String
+  dataSourceId    String
+  sourceKey       String
+  sourceRecordId  String
+  channel         String
+  settlementRef   String
+  settlementDate  DateTime      @db.Date
+  /// The order this charge belongs to; null for period-level lines (e.g. TDS, storage).
+  orderVoucherId  String?
+  orderRef        String?
+  eventType       String?
+  chargeType      String
+  rawLabel        String?
+  /// Positive = deducted from the seller. Excludes GST on the charge.
+  amount          Decimal       @db.Decimal(18, 2)
+  gstAmount       Decimal       @default(0) @db.Decimal(18, 2)
+  /// GST TCS / income-tax TDS: claimable tax credits, never a cost.
+  isTaxWithheld   Boolean       @default(false)
+  allocationBasis String?
+  status          VoucherStatus @default(active)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord    SourceRecord  @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  orderVoucher    Voucher?      @relation(fields: [orderVoucherId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([tenantId, dataSourceId, sourceKey])
+  @@index([tenantId, channel, settlementDate])
+  @@index([tenantId, orderVoucherId])
+  @@index([tenantId, sourceRecordId])
 }

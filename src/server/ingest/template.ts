@@ -41,7 +41,8 @@ export const PARTY_COLUMNS = [
   "gstin",
   "credit_days",
   "phone",
-  "email"
+  "email",
+  "buyer_identity"
 ] as const;
 
 /** One row per voucher line; header fields repeat on every line of the voucher. */

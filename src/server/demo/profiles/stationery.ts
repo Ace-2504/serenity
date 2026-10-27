@@ -11,10 +11,12 @@ const pad = (n: number, width = 3) => String(n).padStart(width, "0");
  *     shipping fees per order; payout ~7 days after delivery; TCS per order, TDS per period.
  *   - Meesho: 0% commission; seller pays shipping and return shipping; paid 7 days after delivery.
  *   - Blinkit: inventory-led since Sep 2025, i.e. a B2B sale to the platform against a PO.
+ *   - Zepto / Swiggy Instamart: modelled the same way (B2B supply against POs); Zepto
+ *     reportedly pays suppliers in 30-60 days.
  *   - GST TCS 0.5% (s.52 CGST Act), income-tax TDS 0.1% (s.194-O) on e-commerce operators.
  *
  * ILLUSTRATIVE ASSUMPTIONS, NOT FACTS: GST rates and HSN codes per group, every fee amount,
- * the gateway %, payout timings, return rates, Blinkit's buy price and payment terms.
+ * the gateway %, payout timings, return rates, quick-commerce buy prices and payment terms.
  */
 export const stationeryDemoProfile: DemoProfile = {
   packId: "stationery",
@@ -161,7 +163,9 @@ export const stationeryDemoProfile: DemoProfile = {
       taxWithheld: { tcsPct: 0.5, tdsPct: 0.1 },
       payout: { cycleDays: 7, deliveryDays: 6, returnWindowDays: 7 }
     },
-    { id: "blinkit", label: "Blinkit (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null }
+    { id: "blinkit", label: "Blinkit (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null },
+    { id: "zepto", label: "Zepto (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null },
+    { id: "instamart", label: "Swiggy Instamart (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null }
   ],
   segments: [
     {
@@ -362,6 +366,56 @@ export const stationeryDemoProfile: DemoProfile = {
       discountPct: [0, 0],
       creditDays: 30,
       payDelayMean: [0, 5],
+      returnRate: 0.01,
+      hasContact: false
+    }
+,
+    {
+      id: "quick_commerce_zepto",
+      label: "Quick commerce (Zepto)",
+      channel: "zepto",
+      count: 1,
+      codePrefix: "QC-ZPT",
+      name: () => "Zepto (demo account)",
+      billing: "credit",
+      priceTier: "platform",
+      anonymousBuyers: false,
+      ordersPerWeek: [1.5, 1.5],
+      seasonBoost: { "Back to school": 1.5, "Board exams": 1.3 },
+      offSeasonFactor: 1,
+      groupWeights: { Pens: 3, Notebooks: 3, "Pencils & Erasers": 2, "Office Supplies": 2, "Art Supplies": 1 },
+      linesPerOrder: [5, 15],
+      qty: [24, 240],
+      qtyStep: 12,
+      sizeSigma: 0,
+      discountPct: [0, 0],
+      creditDays: 45,
+      payDelayMean: [0, 10],
+      returnRate: 0.01,
+      hasContact: false
+    }
+,
+    {
+      id: "quick_commerce_instamart",
+      label: "Quick commerce (Swiggy Instamart)",
+      channel: "instamart",
+      count: 1,
+      codePrefix: "QC-INS",
+      name: () => "Swiggy Instamart (demo account)",
+      billing: "credit",
+      priceTier: "platform",
+      anonymousBuyers: false,
+      ordersPerWeek: [1, 1],
+      seasonBoost: { "Back to school": 1.5, "Board exams": 1.3 },
+      offSeasonFactor: 1,
+      groupWeights: { Pens: 3, Notebooks: 3, "Pencils & Erasers": 2, "Office Supplies": 2, "Art Supplies": 1 },
+      linesPerOrder: [5, 15],
+      qty: [24, 240],
+      qtyStep: 12,
+      sizeSigma: 0,
+      discountPct: [0, 0],
+      creditDays: 30,
+      payDelayMean: [0, 7],
       returnRate: 0.01,
       hasContact: false
     }

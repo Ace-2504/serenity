@@ -15,6 +15,9 @@ export default defineConfig({
     globalSetup: ["./scripts/test-db-setup.mjs"],
     env: { DATABASE_URL: testDatabaseUrl, DIRECT_URL: testDatabaseUrl },
     fileParallelism: false,
+    // Imports against a real database take seconds, not milliseconds.
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },

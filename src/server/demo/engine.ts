@@ -776,7 +776,8 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
       gstin: "",
       credit_days: c.segment.billing === "credit" ? String(c.segment.creditDays) : "0",
       phone: c.segment.hasContact ? `+91 00000 ${String(10000 + c.idx).slice(-5)}` : "",
-      email: c.segment.hasContact ? `${c.code.toLowerCase()}@example.com` : ""
+      email: c.segment.hasContact ? `${c.code.toLowerCase()}@example.com` : "",
+      buyer_identity: c.segment.anonymousBuyers ? "anonymous" : "named"
     })),
     ...suppliers.map((s) => ({
       party_code: s.code,
@@ -788,7 +789,8 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
       gstin: "",
       credit_days: String(s.creditDays),
       phone: "",
-      email: ""
+      email: "",
+      buyer_identity: "named"
     }))
   ];
 
