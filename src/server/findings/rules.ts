@@ -22,7 +22,8 @@ export const RULES: { id: string; label: string; run: (ctx: RuleContext) => Find
   { id: "CUSTOMER_CONCENTRATION", label: "Dependence on a few buyers", run: customerConcentration },
   { id: "LAPSING_KEY_CUSTOMER", label: "Valuable customer has gone quiet", run: lapsingCustomers },
   { id: "STOCKOUT_REPEAT", label: "Repeated stockouts losing sales", run: stockouts },
-  { id: "CHANNEL_LOSS_MAKER", label: "Product loses money on a channel", run: channelLossMakers }
+  { id: "CHANNEL_LOSS_MAKER", label: "Product loses money on a channel", run: channelLossMakers },
+  { id: "FILL_RATE_LOW", label: "Supplying less than a platform ordered", run: lowFillRate }
 ];
 
 function slowMovers(ctx: RuleContext): FindingDraft[] {
@@ -368,6 +369,60 @@ function channelLossMakers(ctx: RuleContext): FindingDraft[] {
         impactFormula: "−(gross profit − channel fees) over the last 12 months",
         assumptions: ["Fees are spread over an order's products by value; fixed per-order fees weigh most on cheap items.", "GST on fees and tax withheld (TCS/TDS) are excluded as credits."],
         measurePlan: { metric: "channel_item_contribution", label: `Contribution per unit of this product on ${channelLabel(channel)} over the next 90 days`, baseline: -perUnit, checkAfterDays: 90, successWhen: "is zero or positive", target: 0, direction: "increase" }
+      } satisfies FindingDraft;
+    });
+}
+
+function lowFillRate(ctx: RuleContext): FindingDraft[] {
+  const margin = ctx.businessMargin;
+  return ctx.fillByChannel
+    .filter((c) => c.fillRate !== null && c.fillRate < C.fillRateTarget && c.ordered >= C.fillRateMinUnits)
+    .map((c) => {
+      const label = channelLabel(c.key);
+      const items = ctx.fillByChannelItem
+        .filter((r) => r.key.startsWith(`${c.key}|`) && r.ordered > r.supplied)
+        .sort((a, b) => (b.shortValue ?? 0) - (a.shortValue ?? 0) || b.ordered - b.supplied - (a.ordered - a.supplied));
+      const shortUnits = c.ordered - c.supplied;
+      const impact = c.shortValue !== null && margin !== null ? c.shortValue * margin * (365 / C.windowDays) : null;
+      const pctNow = (c.fillRate! * 100).toFixed(1);
+      return {
+        ruleId: "FILL_RATE_LOW",
+        dedupeKey: `FILL_RATE_LOW|${c.key}`,
+        entityType: "business",
+        entityId: null,
+        entityLabel: label,
+        severity: severityFor(impact),
+        title: `${label}: you supplied ${pctNow}% of what was ordered in the last ${C.windowDays} days`,
+        whatHappened: `${label} ordered ${Math.round(c.ordered)} units on ${c.pos} purchase orders and received ${Math.round(c.supplied)}; ${c.shortLines} PO line(s) were short by ${Math.round(shortUnits)} units in all.`,
+        evidence: {
+          facts: [
+            { label: "Fill rate, last 90 days", value: `${pctNow}%` },
+            { label: "Units ordered / supplied", value: `${Math.round(c.ordered)} / ${Math.round(c.supplied)}` },
+            { label: "Short value at PO prices", value: c.shortValue === null ? "PO prices not given" : inr(c.shortValue) },
+            { label: "Target", value: `${(C.fillRateTarget * 100).toFixed(0)}%` }
+          ],
+          table: items.length
+            ? {
+                columns: ["Product", "Ordered", "Supplied", "Fill rate", "Short value"],
+                rows: items.slice(0, 15).map((r) => [
+                  ctx.items.get(r.key.split("|")[1])?.name ?? "—",
+                  String(Math.round(r.ordered)),
+                  String(Math.round(r.supplied)),
+                  r.fillRate === null ? "—" : `${(r.fillRate * 100).toFixed(0)}%`,
+                  r.shortValue === null ? "—" : inr(r.shortValue)
+                ])
+              }
+            : undefined
+        },
+        whyItMatters: `Quick-commerce platforms reduce orders, delist products or debit penalties for short supply.${impact === null ? "" : ` The missed sales alone are worth about ${inr(impact)} of gross profit a year.`}`,
+        suggestedAction: `Keep a separate stock buffer for ${label}'s top products, check the reorder points of the products listed, and tell the platform early when a PO cannot be met in full.`,
+        impactInr: impact,
+        impactFormula: "Short value at PO prices × business gross margin × 365/90",
+        assumptions: [
+          "Assumes the short units would have sold at the PO price and the business's average margin.",
+          "Penalties or fill-rate debits are not included unless imported as channel charges."
+        ],
+        measurePlan: { metric: "channel_fill_rate", label: `${label} fill rate over the next 90 days`, baseline: c.fillRate! * 100, checkAfterDays: 90, successWhen: `reaches ${(C.fillRateTarget * 100).toFixed(0)}%`, target: C.fillRateTarget * 100, direction: "increase" }
       } satisfies FindingDraft;
     });
 }

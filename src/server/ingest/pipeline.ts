@@ -39,6 +39,8 @@ export type ImportSummary = {
   controlTotals: ControlReconciliation;
   /** Set on commit: the rebuilt stock ledger and how it compares with the source's closing stock. */
   ledger?: LedgerSummary & { stockCheck: StockCheck };
+  /** Set on commit: channel charges linked to an order in the books, business-wide. */
+  chargeLinks?: { linked: number; unlinked: number; ambiguous: number };
   /** Set when a file adapter (e.g. Tally XML) produced the template files. */
   adapter?: AdapterSummary;
 };
@@ -157,6 +159,10 @@ export async function commitImport(db: TenantDb, tenantId: string, batchId: stri
 
       await writeBundle(tx, tenantId, batch.dataSourceId, batch.id, bundle, plan, options.onStep ?? (() => undefined));
 
+      // Marketplace charges arrive in their own files; link them to the orders in the books by
+      // voucher number or marketplace order id, whichever side was imported first.
+      summary.chargeLinks = await linkChannelCharges(tx, tenantId);
+
       options.onStep?.("ledger");
       const ledger = await rebuildStockLedger(tx, tenantId);
       summary.ledger = { ...ledger, stockCheck: await checkStockAgainstSource(tx, tenantId, batch.id) };
@@ -203,11 +209,13 @@ type Plan = {
   status: Map<string, "new" | "changed" | "unchanged">;
   deletedVoucherKeys: string[];
   deletedChargeKeys: string[];
+  deletedOrderKeys: string[];
 };
 
 async function analyse(tx: TenantTx, tenantId: string, dataSourceId: string, bundle: ParsedBundle, log: IssueLog) {
-  const known = await loadKnown(tx, dataSourceId);
+  const known = await loadKnown(tx, dataSourceId, bundle.kind);
   const controlTotals = validateBundle(bundle, known, log);
+  if (bundle.kind === "channel") await previewOrderLinks(tx, bundle, log);
   await validateAttributes(tx, tenantId, bundle, log);
   const period = bundle.controlTotals.length > 0 ? { from: bundle.controlTotals[0].from, to: bundle.controlTotals[0].to } : null;
 
@@ -233,6 +241,7 @@ async function analyse(tx: TenantTx, tenantId: string, dataSourceId: string, bun
 
   let deletedVoucherKeys: string[] = [];
   let deletedChargeKeys: string[] = [];
+  let deletedOrderKeys: string[] = [];
   if (period) {
     const range = { gte: new Date(period.from), lte: new Date(period.to) };
     const inBundle = new Set([...bundle.vouchers.map((v) => v.key), ...bundle.settlements.map((s) => s.key)]);
@@ -245,6 +254,14 @@ async function analyse(tx: TenantTx, tenantId: string, dataSourceId: string, bun
     deletedChargeKeys = (await tx.channelCharge.findMany({ where: { dataSourceId, status: "active", settlementDate: range }, select: { sourceKey: true } }))
       .map((c) => c.sourceKey)
       .filter((key) => !chargeKeys.has(key));
+    const orderKeys = new Set(bundle.customerOrders.map((o) => o.key));
+    deletedOrderKeys = (await tx.customerOrderLine.findMany({ where: { dataSourceId, status: "active", poDate: range }, select: { sourceKey: true } }))
+      .map((o) => o.sourceKey)
+      .filter((key) => !orderKeys.has(key));
+    if (deletedOrderKeys.length > 0) {
+      entities.customer_order ??= { new: 0, changed: 0, unchanged: 0, deletedAtSource: 0 };
+      entities.customer_order.deletedAtSource += deletedOrderKeys.length;
+    }
     for (const key of deletedVoucherKeys) {
       const entity = key.startsWith("receipt|") || key.startsWith("payment|") ? "settlement" : "voucher";
       entities[entity] ??= { new: 0, changed: 0, unchanged: 0, deletedAtSource: 0 };
@@ -254,11 +271,12 @@ async function analyse(tx: TenantTx, tenantId: string, dataSourceId: string, bun
       entities.channel_charge ??= { new: 0, changed: 0, unchanged: 0, deletedAtSource: 0 };
       entities.channel_charge.deletedAtSource += deletedChargeKeys.length;
     }
-    if (deletedVoucherKeys.length + deletedChargeKeys.length > 0) {
+    const deletedCount = deletedVoucherKeys.length + deletedChargeKeys.length + deletedOrderKeys.length;
+    if (deletedCount > 0) {
       log.warning(
         "MISSING_FROM_SOURCE",
         "voucher",
-        `${deletedVoucherKeys.length + deletedChargeKeys.length} record(s) imported earlier for ${period.from} to ${period.to} are not in this file and will be marked deleted at source`
+        `${deletedCount} record(s) imported earlier for ${period.from} to ${period.to} are not in this file and will be marked deleted at source`
       );
     }
   }
@@ -274,7 +292,7 @@ async function analyse(tx: TenantTx, tenantId: string, dataSourceId: string, bun
     },
     controlTotals
   };
-  return { summary, plan: { entries: all, current, status, deletedVoucherKeys, deletedChargeKeys } satisfies Plan };
+  return { summary, plan: { entries: all, current, status, deletedVoucherKeys, deletedChargeKeys, deletedOrderKeys } satisfies Plan };
 }
 
 /** One entry per versioned record in the bundle. Snapshots are point-in-time and replaced instead. */
@@ -288,6 +306,7 @@ function entries(bundle: ParsedBundle): (Entry & { draft: unknown })[] {
   bundle.vouchers.forEach((v) => add("voucher", v.key, v));
   bundle.settlements.forEach((s) => add("settlement", s.key, s));
   bundle.charges.forEach((c) => add("channel_charge", c.key, c));
+  bundle.customerOrders.forEach((o) => add("customer_order", o.key, o));
   return out;
 }
 
@@ -298,10 +317,16 @@ function openingStockDraft(bundle: ParsedBundle) {
   return { key: `opening_stock|${period.from}`, date: period.from, lines };
 }
 
-async function loadKnown(tx: TenantTx, dataSourceId: string): Promise<KnownRecords> {
+/**
+ * Records already imported that a bundle may reference. Books bundles see their own source's
+ * masters; channel bundles (marketplace charges, customer POs) reference the books' items and
+ * parties, so they see the whole business's.
+ */
+async function loadKnown(tx: TenantTx, dataSourceId: string, kind: ParsedBundle["kind"] = "books"): Promise<KnownRecords> {
+  const masters = kind === "channel" ? {} : { dataSourceId };
   const [items, parties, vouchers] = await Promise.all([
-    tx.item.findMany({ where: { dataSourceId }, select: { sourceKey: true } }),
-    tx.party.findMany({ where: { dataSourceId }, select: { sourceKey: true, kind: true } }),
+    tx.item.findMany({ where: masters, select: { sourceKey: true } }),
+    tx.party.findMany({ where: masters, select: { sourceKey: true, kind: true } }),
     tx.voucher.findMany({ where: { dataSourceId, status: "active" }, select: { sourceKey: true } })
   ]);
   return {
@@ -323,6 +348,75 @@ async function validateAttributes(tx: TenantTx, tenantId: string, bundle: Parsed
       });
     }
   }
+}
+
+/** For channel files: how many of the orders they mention are in the books already. */
+async function previewOrderLinks(tx: TenantTx, bundle: ParsedBundle, log: IssueLog) {
+  const refs = [...new Set(bundle.charges.map((c) => c.orderNumber).filter((r): r is string => r !== null))];
+  if (refs.length === 0) return;
+  const found = new Set<string>();
+  for (let i = 0; i < refs.length; i += CHUNK) {
+    const chunk = refs.slice(i, i + CHUNK);
+    const rows = await tx.voucher.findMany({
+      where: { type: "sales_invoice", status: "active", OR: [{ orderRef: { in: chunk } }, { number: { in: chunk } }] },
+      select: { orderRef: true, number: true }
+    });
+    for (const r of rows) {
+      if (r.orderRef) found.add(r.orderRef);
+      found.add(r.number);
+    }
+  }
+  const missing = refs.filter((r) => !found.has(r));
+  const message = `${refs.length - missing.length} of ${refs.length} orders in this file were found in your books`;
+  if (missing.length === 0) log.add({ severity: "info", code: "ORDERS_MATCHED", entity: "channel_charge", message });
+  else
+    log.warning(
+      "ORDERS_NOT_IN_BOOKS",
+      "channel_charge",
+      `${message}; charges for the other ${missing.length} (e.g. ${missing.slice(0, 3).join(", ")}) are kept and linked automatically once those invoices are imported`
+    );
+}
+
+/**
+ * Item and party ids by code, across the business, for channel files that reference the books.
+ * If two sources use the same code, the most recently created record wins.
+ */
+async function tenantMasters(tx: TenantTx, bundle: ParsedBundle) {
+  const itemCodes = [...new Set(bundle.customerOrders.map((o) => o.itemCode))];
+  const partyCodes = [...new Set(bundle.customerOrders.map((o) => o.partyCode))];
+  const [items, parties] = await Promise.all([
+    tx.item.findMany({ where: { sourceKey: { in: itemCodes } }, select: { id: true, sourceKey: true }, orderBy: { createdAt: "asc" } }),
+    tx.party.findMany({ where: { sourceKey: { in: partyCodes } }, select: { id: true, sourceKey: true }, orderBy: { createdAt: "asc" } })
+  ]);
+  return { items: new Map(items.map((i) => [i.sourceKey, i.id])), parties: new Map(parties.map((p) => [p.sourceKey, p.id])) };
+}
+
+/**
+ * Links unlinked order-level channel charges to the sales invoice they belong to, by the
+ * invoice's number or its marketplace order reference. When several invoices match (an order
+ * split across invoices), the earliest is used and the charge is counted as ambiguous.
+ */
+async function linkChannelCharges(tx: TenantTx, tenantId: string) {
+  const [result] = await tx.$queryRaw<{ linked: bigint; ambiguous: bigint }[]>`
+    WITH candidates AS (
+      SELECT c."id" AS charge_id, v."id" AS voucher_id,
+        ROW_NUMBER() OVER (PARTITION BY c."id" ORDER BY v."date", v."number") AS rn,
+        COUNT(*) OVER (PARTITION BY c."id") AS matches
+      FROM "ChannelCharge" c
+      JOIN "Voucher" v ON v."tenantId" = c."tenantId" AND v."type" = 'sales_invoice' AND v."status" = 'active'
+        AND (v."orderRef" = c."orderRef" OR v."number" = c."orderRef")
+      WHERE c."tenantId" = ${tenantId} AND c."orderVoucherId" IS NULL AND c."orderRef" IS NOT NULL
+    ),
+    updated AS (
+      UPDATE "ChannelCharge" c SET "orderVoucherId" = m.voucher_id, "allocationBasis" = NULL
+      FROM candidates m WHERE m.rn = 1 AND c."id" = m.charge_id AND c."tenantId" = ${tenantId}
+      RETURNING c."id", m.matches
+    )
+    SELECT COUNT(*) AS linked, COUNT(*) FILTER (WHERE matches > 1) AS ambiguous FROM updated`;
+  const [{ unlinked }] = await tx.$queryRaw<{ unlinked: bigint }[]>`
+    SELECT COUNT(*) AS unlinked FROM "ChannelCharge"
+    WHERE "tenantId" = ${tenantId} AND "status" = 'active' AND "orderVoucherId" IS NULL AND "orderRef" IS NOT NULL`;
+  return { linked: Number(result?.linked ?? 0), unlinked: Number(unlinked), ambiguous: Number(result?.ambiguous ?? 0) };
 }
 
 async function lockDataSource(tx: TenantTx, dataSourceId: string) {
@@ -675,10 +769,39 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
   await bulkInsert(tx, tenantId, "ChannelCharge", COLUMNS.ChannelCharge, newCharges.map((c) => ({ ...c, updatedAt: now })));
   if (newCharges.length > 0) await analyze(tx, "ChannelCharge");
 
+  // Customer purchase orders. Their items and parties live in the books, possibly another source.
+  step("customer_orders");
+  if (bundle.customerOrders.length > 0) {
+    const masters = await tenantMasters(tx, bundle);
+    const orderIds = new Map((await tx.customerOrderLine.findMany({ where: { dataSourceId }, select: { id: true, sourceKey: true } })).map((o) => [o.sourceKey, o.id]));
+    const newOrders: Prisma.CustomerOrderLineCreateManyInput[] = [];
+    for (const o of bundle.customerOrders) {
+      const recordId = isWrite("customer_order", o.key);
+      if (!recordId) continue;
+      const data = {
+        sourceRecordId: recordId,
+        channel: o.channel,
+        poNumber: o.poNumber,
+        poDate: new Date(o.poDate),
+        partyId: masters.parties.get(o.partyCode)!,
+        itemId: masters.items.get(o.itemCode)!,
+        qtyOrdered: o.qtyOrdered,
+        qtySupplied: o.qtySupplied,
+        unitPrice: o.unitPrice,
+        grnDate: o.grnDate ? new Date(o.grnDate) : null,
+        status: "active" as const
+      };
+      const existing = orderIds.get(o.key);
+      if (existing) await tx.customerOrderLine.update({ where: { id: existing }, data });
+      else newOrders.push({ id: randomUUID(), tenantId, dataSourceId, sourceKey: o.key, ...data });
+    }
+    await createChunked(newOrders, (data) => tx.customerOrderLine.createMany({ data }));
+  }
+
   // Records the source has again after an earlier file dropped them: unchanged content, so no
   // new version was written above, but they must become active again.
   step("deletions");
-  const present = new Set([...bundle.vouchers.map((v) => v.key), ...bundle.settlements.map((st) => st.key), ...bundle.charges.map((c) => c.key)]);
+  const present = new Set([...bundle.vouchers.map((v) => v.key), ...bundle.settlements.map((st) => st.key), ...bundle.charges.map((c) => c.key), ...bundle.customerOrders.map((o) => o.key)]);
   const restoreVouchers = (await tx.voucher.findMany({ where: { dataSourceId, status: "deleted_at_source" }, select: { sourceKey: true } }))
     .map((v) => v.sourceKey)
     .filter((key) => present.has(key));
@@ -694,6 +817,15 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
   // Records the source no longer has for this period.
   for (let i = 0; i < plan.deletedVoucherKeys.length; i += CHUNK) {
     await tx.voucher.updateMany({ where: { dataSourceId, sourceKey: { in: plan.deletedVoucherKeys.slice(i, i + CHUNK) } }, data: { status: "deleted_at_source" } });
+  }
+  const restoreOrders = (await tx.customerOrderLine.findMany({ where: { dataSourceId, status: "deleted_at_source" }, select: { sourceKey: true } }))
+    .map((o) => o.sourceKey)
+    .filter((key) => present.has(key));
+  if (restoreOrders.length > 0) {
+    await tx.customerOrderLine.updateMany({ where: { dataSourceId, sourceKey: { in: restoreOrders } }, data: { status: "active" } });
+  }
+  for (let i = 0; i < plan.deletedOrderKeys.length; i += CHUNK) {
+    await tx.customerOrderLine.updateMany({ where: { dataSourceId, sourceKey: { in: plan.deletedOrderKeys.slice(i, i + CHUNK) } }, data: { status: "deleted_at_source" } });
   }
   for (let i = 0; i < plan.deletedChargeKeys.length; i += CHUNK) {
     await tx.channelCharge.updateMany({ where: { dataSourceId, sourceKey: { in: plan.deletedChargeKeys.slice(i, i + CHUNK) } }, data: { status: "deleted_at_source" } });

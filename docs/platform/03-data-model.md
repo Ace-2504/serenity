@@ -90,8 +90,14 @@ Tenant ─┬─ Membership ── User (existing)
 Line-level deductions a channel makes from its payouts, from marketplace settlement reports or gateway statements. Fields follow `07-integration-research.md`:
 `channel, settlementRef, periodFrom?, periodTo?, payoutDate, postedDate?, status (deferred|released), orderRef?, voucherId?, sku?, qty?, eventType (sale|refund|return|rto|cancel|reimbursement|ads|storage|adjustment), chargeType (normalised) + rawLabel, amount (signed), gstOnCharge, isTaxWithheld, allocationBasis?, sourceRecordId`.
 * `isTaxWithheld` (GST TCS, income-tax TDS) marks claimable credits. They affect cash, never contribution.
-* Period-level lines (e.g. Amazon TDS, storage, penalties) have no order. They are allocated to orders by a recorded `allocationBasis` (default: share of order value in the period).
+* Period-level lines (e.g. Amazon TDS, storage, ads, penalties) have no order (`allocationBasis = "period"`). They are **not** spread over orders: the Channels page shows them separately as "fees not tied to an order", and contribution excludes them. Allocating them would need a stated basis the owner agrees to.
 * `Voucher.channel` holds the channel id; `Voucher.orderRef` holds the platform order id that joins vouchers to charges.
+* **Linking across sources (M10a).** Marketplace files are a separate data source from the books. After every commit, unlinked order-level charges are linked to the sales invoice whose `number` or `orderRef` equals the charge's `orderRef`, whichever side was imported first. When several invoices match (one order split across invoices), the earliest is used and the link is counted as ambiguous.
+
+### CustomerOrderLine (added in M10a)
+`channel, poNumber, poDate, partyId, itemId, qtyOrdered, qtySupplied, unitPrice?, grnDate?, status, sourceRecordId`, unique per `(tenant, dataSource, channel|po|item)`. These are purchase orders a business customer (Blinkit, Zepto, Instamart, a distributor) placed, and the GRN quantity supplied against each line: the basis of `fill_rate`.
+* Items and parties are resolved across the business's books, because PO files come from a different source.
+* Deleted-at-source semantics follow vouchers: lines missing from a newer file covering the same PO dates are marked `deleted_at_source`.
 
 ### BillAllocation
 `(paymentVoucherId, invoiceVoucherId, amount)`: receipts and payments allocated against bills when the source has bill-wise detail. When absent, ageing uses FIFO allocation (oldest bill first), labelled as an assumption.

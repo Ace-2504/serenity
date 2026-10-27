@@ -165,13 +165,25 @@ export function validateBundle(bundle: ParsedBundle, known: KnownRecords, log: I
     }
   }
 
-  // Channel charges: orders should exist.
-  for (const charge of bundle.charges) {
+  // Channel charges: orders should exist. Channel-only uploads link to orders in the books at
+  // commit (by voucher number or marketplace order id) and report the match rate instead.
+  for (const charge of bundle.kind === "books" ? bundle.charges : []) {
     if (charge.orderNumber && !voucherKeys.has(`sales_invoice|${charge.orderNumber}`)) {
       log.warning("UNKNOWN_ORDER", "channel_charge", `${charge.settlementRef}: order ${charge.orderNumber} not found; the charge is kept without an order link`, {
         rowRef: charge.rowRef,
         field: "order_voucher_no"
       });
+    }
+  }
+
+  // Customer purchase orders reference known customers and items.
+  for (const order of bundle.customerOrders) {
+    const kind = partyKinds.get(order.partyCode);
+    if (!kind) log.error("UNKNOWN_PARTY", "customer_order", `PO ${order.poNumber}: party ${order.partyCode} is not in the books`, { rowRef: order.rowRef, field: "party_code" });
+    else if (kind === "supplier") log.error("PARTY_ROLE_MISMATCH", "customer_order", `PO ${order.poNumber}: ${order.partyCode} is a supplier`, { rowRef: order.rowRef, field: "party_code" });
+    if (!allItems.has(order.itemCode)) log.error("UNKNOWN_ITEM", "customer_order", `PO ${order.poNumber}: item ${order.itemCode} is not in the books`, { rowRef: order.rowRef, field: "item_code" });
+    if (order.qtySupplied.gt(order.qtyOrdered)) {
+      log.warning("OVER_SUPPLIED", "customer_order", `PO ${order.poNumber}: ${order.itemCode} supplied ${order.qtySupplied} against ${order.qtyOrdered} ordered`, { rowRef: order.rowRef });
     }
   }
 

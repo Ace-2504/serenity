@@ -44,7 +44,21 @@ export const METRICS: MetricDef[] = [
     formula: "A valuable customer (3+ orders, lifetime value in the top 60%) silent for over 30 days and over twice their usual gap, during months in which they normally buy.",
     notes: "Season-aware: a school in its usual off-season is not lapsing; one that skipped a season is."
   },
-  { id: "stockout_days", label: "Stockout days", unit: "days", formula: "Days in the period with no stock left while the item had sold in the previous 90 days." }
+  { id: "stockout_days", label: "Stockout days", unit: "days", formula: "Days in the period with no stock left while the item had sold in the previous 90 days." },
+  {
+    id: "fill_rate",
+    label: "Fill rate",
+    unit: "%",
+    formula: "Units supplied ÷ units ordered on customer purchase orders (quick commerce, distributors) dated in the period.",
+    notes: "Over-supply on one line never offsets a shortfall on another. Needs the customers' PO quantities; not available from invoices alone."
+  },
+  {
+    id: "payout_lag_days",
+    label: "Payout lag",
+    unit: "days",
+    formula: "Days from the order's invoice date to the marketplace settlement that paid it (mean, median, 90th percentile), by channel.",
+    notes: "From settlement files with the order linked; actual dates, never an assumed payout cycle."
+  }
 ];
 
 export const metricById = (id: string) => METRICS.find((m) => m.id === id);

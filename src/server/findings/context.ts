@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { getDomainPack } from "@/domain/packs";
+import { fillRate } from "@/server/analytics/channels";
 import { concentration, customerRfm } from "@/server/analytics/customers";
 import { stockoutDays, stockPositions } from "@/server/analytics/inventory";
 import { profitability, type Period } from "@/server/analytics/profitability";
@@ -37,6 +38,7 @@ export async function buildContext(db: TenantDb, tenantId: string, asOf: string)
     openBills(db, tenantId, "receivable", asOf)
   ]);
 
+  const [fillByChannel, fillByChannelItem] = await Promise.all([fillRate(db, tenantId, current, "channel"), fillRate(db, tenantId, current, "channel_item")]);
   const [arNow, arThen, salesNow, salesThen] = await Promise.all([
     averageOpen(db, tenantId, "receivable", half),
     averageOpen(db, tenantId, "receivable", halfLastYear),
@@ -61,6 +63,8 @@ export async function buildContext(db: TenantDb, tenantId: string, asOf: string)
     businessYear,
     businessMargin: businessYear && businessYear.netSalesKnownCost.gt(0) ? businessYear.grossProfit.div(businessYear.netSalesKnownCost).toNumber() : null,
     rfm,
+    fillByChannel,
+    fillByChannelItem,
     concentration: conc,
     receivables: bills,
     dso: { now: daysMetric(arNow.value, salesNow, days(half), "credit sales"), then: daysMetric(arThen.value, salesThen, days(halfLastYear), "credit sales"), arNow: bills.reduce((s, b) => s + b.pending, 0) },

@@ -27,6 +27,8 @@ export type ChannelSpec = {
   taxWithheld: { tcsPct: number; tdsPct: number } | null;
   /** For platform settlement: payout every N days, settling orders older than the return window. */
   payout?: { cycleDays: number; deliveryDays: number; returnWindowDays: number };
+  /** The customer places purchase orders (quick commerce, distributors): emit PO lines for fill rate. */
+  customerPurchaseOrders?: boolean;
 };
 
 export type Billing = "credit" | "prepaid" | "cash" | "platform";

@@ -29,6 +29,7 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set<Prisma.ModelName>([
   "ImportFile",
   "BillAllocation",
   "ChannelCharge",
+  "CustomerOrderLine",
   "Finding",
   "FindingOutcome",
   "Job"

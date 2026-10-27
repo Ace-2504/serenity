@@ -2,6 +2,7 @@ import { toCsv } from "@/server/demo/csv";
 import {
   CHANNEL_CHARGE_COLUMNS,
   CONTROL_TOTAL_COLUMNS,
+  CUSTOMER_ORDER_COLUMNS,
   ITEM_COLUMNS,
   OUTSTANDING_COLUMNS,
   PARTY_COLUMNS,
@@ -133,10 +134,31 @@ export const TEMPLATE_DOCS: FileDoc[] = [
       col("channel", true, ""),
       col("settlement_ref", true, ""),
       col("settlement_date", true, ""),
-      col("order_voucher_no", false, "Your sales voucher for the order; blank for period-level lines such as TDS."),
+      col(
+        "order_voucher_no",
+        false,
+        "Your sales voucher number for the order, or the marketplace order id (matched to the invoice's order_ref, also across separate uploads). Blank for period-level lines such as TDS."
+      ),
       col("charge_type", true, "e.g. referral_fee, closing_fee, shipping_fee, payment_gateway_fee, tcs_gst, tds_income_tax."),
       col("amount", true, "Excluding GST on the fee. tcs_gst and tds_income_tax are tax credits, not costs."),
       col("gst_amount", false, "GST charged on the fee.")
+    ]
+  },
+  {
+    file: TEMPLATE_FILES.customerOrders,
+    required: false,
+    purpose:
+      "Purchase orders a business customer (Blinkit, Zepto, Instamart, a distributor) placed and what you supplied against each line: the basis of fill rate. Can be uploaded on its own; items and customers must already be in your books.",
+    columns: [
+      col("channel", true, "e.g. blinkit, zepto, instamart."),
+      col("po_number", true, "The customer's PO number. Put it in order_ref on the invoice to link the two."),
+      col("po_date", true, "YYYY-MM-DD."),
+      col("party_code", true, "The customer as in your books."),
+      col("item_code", true, "Your item code (map the platform's SKU to it)."),
+      col("qty_ordered", true, "Units on the PO."),
+      col("qty_supplied", true, "Units accepted against the PO (GRN quantity); 0 if nothing was supplied."),
+      col("unit_price", false, "PO price per unit, excluding GST."),
+      col("grn_date", false, "Date the goods were received.")
     ]
   }
 ];
@@ -186,5 +208,6 @@ export const TEMPLATE_EXAMPLES: Record<string, string> = {
   [TEMPLATE_FILES.settlements]: toCsv(SETTLEMENT_COLUMNS, []),
   [TEMPLATE_FILES.stockSummary]: toCsv(STOCK_SUMMARY_COLUMNS, []),
   [TEMPLATE_FILES.outstanding]: toCsv(OUTSTANDING_COLUMNS, []),
-  [TEMPLATE_FILES.channelCharges]: toCsv(CHANNEL_CHARGE_COLUMNS, [])
+  [TEMPLATE_FILES.channelCharges]: toCsv(CHANNEL_CHARGE_COLUMNS, []),
+  [TEMPLATE_FILES.customerOrders]: toCsv(CUSTOMER_ORDER_COLUMNS, [])
 };

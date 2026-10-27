@@ -422,3 +422,70 @@ lint / tsc / build  clean (1 pre-existing lint warning)
 * Keys are voucher type + number and ledger/item names, not Tally GUIDs. Renamed ledgers or renumbered vouchers look like new records.
 * The original XML is not stored; the converted template files are, with their SHA-256.
 * Tally export menu paths differ by release; the upload screen describes the export generically.
+
+---
+
+## M10a — Marketplace and quick-commerce file adapters (tested on fixtures only)
+
+**What was built**
+* **Channel-only uploads.** A bundle with `channel_charges.csv` or the new `customer_orders.csv` and no `vouchers.csv` is a *channel* bundle: books files are not required, and items and parties are checked against the whole business. Each platform gets its own data source (`marketplace_file`), so its period-scoped deletions never touch the books.
+* **Cross-source order linking.** After every commit, unlinked order-level charges are linked to the sales invoice whose number or `orderRef` matches, whichever was imported first. The commit summary reports linked, unlinked and ambiguous counts; staging reports how many of a file's orders are already in the books.
+* **Customer purchase orders.**
+  * new `CustomerOrderLine` model, migration and template file `customer_orders.csv`, versioned and deleted-at-source like vouchers;
+  * `fill_rate` metric (over-supply capped per line);
+  * the demo generator (v1.1.0) emits Blinkit/Zepto/Instamart POs, with demand as ordered and invoiced quantity as supplied; invoices carry the PO number in `order_ref`.
+* **Adapters** (`src/server/adapters/marketplace/`):
+  * Amazon Settlement V2, with a payout reconciliation per settlement;
+  * Meesho payments (Excel/CSV), with sign-convention detection and an 18% GST split assumption;
+  * quick-commerce PO + GRN files joined on PO + SKU, with `sku_map.csv` for platform SKUs.
+  * Format confidence and gaps are tabulated in `07-integration-research.md`.
+* **XLSX reader** (`src/server/adapters/xlsx.ts`): dependency-free (ZIP via Node zlib plus the existing XML parser), with a per-part size cap against zip bombs and a DTD refusal. Tested against files written by openpyxl and LibreOffice.
+* **Analytics** (`src/server/analytics/channels.ts`): `fillRate`, `payoutLag` (mean, median, p90 from actual dates), `unlinkedCharges`, `chargeTotals`.
+* **Findings:** 9th rule `FILL_RATE_LOW` (a platform supplied < 95% over 90 days), with an evidence table of short products, impact = short value × margin × 365/90, and measurement by next-90-day fill rate.
+* **UI:**
+  * `/bi/channels`: fees on orders vs fees not tied to orders vs tax withheld; per-channel contribution after fees, payout lag and fill rate; short-supply table; note on unlinked fees;
+  * the upload form accepts platform files, with a platform selector;
+  * the review screen shows each adapter's note, deposits reconciled and columns used.
+
+**What the demo shows** (full two-year demo, last 12 months)
+* **Meesho:** contribution **−1.7%** after fees (₹1.8 L of fees on ₹3.7 L of sales). Amazon: 31.7%.
+* **Payout lag:** Amazon 14 days median, Meesho 16, own website 0 (the generator settles gateway payments the same day).
+* **Fill rate:** 91–92% on Blinkit, Zepto and Instamart, driven by stockouts. `FILL_RATE_LOW` fires for Instamart over the last 90 days (94.6%).
+
+**Tests (actual results)**
+```
+npm test            16 files, 124 tests passed (marketplace adapters: 10)
+npm run test:int    9 files, 82 tests passed (254 s)
+lint / tsc / build  clean (1 pre-existing lint warning)
+```
+* **Amazon fixture (hand-computed):**
+  * 11 charge lines with fee GST merged;
+  * a refund reverses commission;
+  * TCS/TDS are tax credits; storage/TDS are period-level;
+  * the deposit ₹330.35 reconciles (500.88 − 139.00 − 22.50 − 4.03 − 5.00);
+  * a wrong deposit is rejected;
+  * an unrecognised fee is listed.
+* **Meesho fixture (Excel written by openpyxl):**
+  * GST split, compensation credit, unpaid sub-order skipped, unmapped column listed;
+  * an Excel date serial and a text date both read as 20 Apr 2025.
+* **Blinkit fixture (PO Excel written by LibreOffice + GRN CSV + SKU map):**
+  * 3 PO lines, two GRNs summed;
+  * an unmapped SKU blocks the import;
+  * the platform and customer are asked for when they cannot be inferred.
+* **End to end (upload API → stage → commit):**
+  * 9 Amazon charges linked to invoices by order id;
+  * contribution after fees exactly ₹319.00 (NB-1) and ₹184.00 (PEN-1);
+  * payout lag 7.5 days;
+  * a re-upload is a no-op;
+  * fill rate 130/210 with short value ₹2,400;
+  * Meesho charges imported *before* their invoices stay unlinked (8), then link when the invoices arrive; Meesho fees net of compensation = ₹140.00.
+* **Demo ground truth:**
+  * fill rate per channel equals the generator's PO units exactly;
+  * payout lag ≥ each marketplace's delivery days.
+* **Findings:** `FILL_RATE_LOW` fires exactly for quick-commerce channels below 95% (with ≥ 100 units ordered).
+
+**Known limitations**
+* **Not verified against real exports.** Amazon.in fee names, Meesho columns and all quick-commerce PO/GRN headers come from public samples or common aliases.
+* Period-level fees (storage, ads) are reported, not allocated to orders.
+* Meesho's GST/TCS ZIP and quick-commerce debit notes have no adapter yet. Debit notes can go through the template as channel charges.
+* Payout lag uses the first settlement that touched the order; later adjustments are ignored.

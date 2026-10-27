@@ -4,6 +4,7 @@ import type { UploadedFile } from "@/server/ingest/parse";
 import {
   CHANNEL_CHARGE_COLUMNS,
   CONTROL_TOTAL_COLUMNS,
+  CUSTOMER_ORDER_COLUMNS,
   ITEM_COLUMNS,
   OUTSTANDING_COLUMNS,
   PARTY_COLUMNS,
@@ -24,6 +25,7 @@ export function datasetToFiles(data: DemoDataset): UploadedFile[] {
     file(TEMPLATE_FILES.stockSummary, toCsv(STOCK_SUMMARY_COLUMNS, data.stockSummary)),
     file(TEMPLATE_FILES.outstanding, toCsv(OUTSTANDING_COLUMNS, data.outstanding)),
     file(TEMPLATE_FILES.channelCharges, toCsv(CHANNEL_CHARGE_COLUMNS, data.channelCharges)),
+    ...(data.customerOrders.length > 0 ? [file(TEMPLATE_FILES.customerOrders, toCsv(CUSTOMER_ORDER_COLUMNS, data.customerOrders))] : []),
     file(TEMPLATE_FILES.controlTotals, toCsv(CONTROL_TOTAL_COLUMNS, data.controlTotals))
   ];
 }

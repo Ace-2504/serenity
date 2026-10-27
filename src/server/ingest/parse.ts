@@ -6,6 +6,7 @@ import {
   CHANNEL_CHARGE_COLUMNS,
   CONTROL_TOTAL_COLUMNS,
   CONTROL_TOTAL_METRICS,
+  CUSTOMER_ORDER_COLUMNS,
   ITEM_COLUMNS,
   OUTSTANDING_COLUMNS,
   PARTY_COLUMNS,
@@ -125,14 +126,31 @@ export type OutstandingDraft = {
 
 export type ControlTotalDraft = { rowRef: string; metric: (typeof CONTROL_TOTAL_METRICS)[number]; from: string; to: string; value: Decimal };
 
+export type CustomerOrderDraft = {
+  rowRef: string;
+  key: string;
+  channel: string;
+  poNumber: string;
+  poDate: string;
+  partyCode: string;
+  itemCode: string;
+  qtyOrdered: Decimal;
+  qtySupplied: Decimal;
+  unitPrice: Decimal | null;
+  grnDate: string | null;
+};
+
 export type ParsedBundle = {
   bundleSha256: string;
+  /** "books": the business's accounts; "channel": marketplace or platform files only (charges, POs). */
+  kind: "books" | "channel";
   files: { name: string; sha256: string; sizeBytes: number; rows: number }[];
   items: ItemDraft[];
   parties: PartyDraft[];
   vouchers: VoucherDraft[];
   settlements: SettlementDraft[];
   charges: ChargeDraft[];
+  customerOrders: CustomerOrderDraft[];
   stockSnapshots: StockSnapshotDraft[];
   outstanding: OutstandingDraft[];
   controlTotals: ControlTotalDraft[];
@@ -166,8 +184,19 @@ const SPECS: FileSpec[] = [
     columns: CHANNEL_CHARGE_COLUMNS,
     required: ["channel", "settlement_ref", "settlement_date", "charge_type", "amount"],
     mandatory: false
+  },
+  {
+    file: TEMPLATE_FILES.customerOrders,
+    entity: "customer_order",
+    columns: CUSTOMER_ORDER_COLUMNS,
+    required: ["channel", "po_number", "po_date", "party_code", "item_code", "qty_ordered", "qty_supplied"],
+    mandatory: false
   }
 ];
+
+/** Books files are required unless the upload holds only channel files (charges, customer POs). */
+const BOOKS_FILES: string[] = [TEMPLATE_FILES.items, TEMPLATE_FILES.parties, TEMPLATE_FILES.vouchers];
+const CHANNEL_FILES: string[] = [TEMPLATE_FILES.channelCharges, TEMPLATE_FILES.customerOrders];
 
 const sha256 = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
 
@@ -203,11 +232,13 @@ export function parseBundle(uploads: UploadedFile[], log: IssueLog): ParsedBundl
     }
   }
 
+  const kind: ParsedBundle["kind"] = !byName.has(TEMPLATE_FILES.vouchers) && CHANNEL_FILES.some((f) => byName.has(f)) ? "channel" : "books";
   const files: ParsedBundle["files"] = [];
   const rowsOf = (spec: FileSpec): Row[] => {
     const upload = byName.get(spec.file);
     if (!upload) {
-      if (spec.mandatory) log.error("MISSING_FILE", "bundle", `${spec.file} is required`);
+      const mandatory = spec.mandatory && !(kind === "channel" && BOOKS_FILES.includes(spec.file));
+      if (mandatory) log.error("MISSING_FILE", "bundle", `${spec.file} is required`);
       return [];
     }
     const meta = { name: spec.file, sha256: sha256(upload.content), sizeBytes: upload.content.length, rows: 0 };
@@ -263,8 +294,9 @@ export function parseBundle(uploads: UploadedFile[], log: IssueLog): ParsedBundl
   const stockSnapshots = parseStockSnapshots(rowsOf(spec(TEMPLATE_FILES.stockSummary)), log);
   const outstanding = parseOutstanding(rowsOf(spec(TEMPLATE_FILES.outstanding)), log);
   const charges = parseCharges(rowsOf(spec(TEMPLATE_FILES.channelCharges)), log);
+  const customerOrders = parseCustomerOrders(rowsOf(spec(TEMPLATE_FILES.customerOrders)), log);
 
-  return { bundleSha256: bundleHash(files), files, items, parties, vouchers, settlements, charges, stockSnapshots, outstanding, controlTotals };
+  return { bundleSha256: bundleHash(files), kind, files, items, parties, vouchers, settlements, charges, customerOrders, stockSnapshots, outstanding, controlTotals };
 }
 
 /** Our CSV writer prefixes formula-like text with an apostrophe; undo that on the way in. */
@@ -509,6 +541,30 @@ function parseCharges(rows: Row[], log: IssueLog): ChargeDraft[] {
     });
   }
   return out;
+}
+
+function parseCustomerOrders(rows: Row[], log: IssueLog): CustomerOrderDraft[] {
+  const out = new Map<string, CustomerOrderDraft>();
+  for (const row of rows) {
+    const r = new FieldReader(row, "customer_order", log);
+    const channel = r.text("channel", { required: true, max: 40 });
+    const poNumber = r.text("po_number", { required: true, max: 64 });
+    const poDate = r.date("po_date", { required: true });
+    const partyCode = r.text("party_code", { required: true, max: 64 });
+    const itemCode = r.text("item_code", { required: true, max: 64 });
+    const qtyOrdered = r.decimal("qty_ordered", { required: true, scale: 3, positive: true });
+    const qtySupplied = r.decimal("qty_supplied", { required: true, scale: 3 });
+    const unitPrice = r.decimal("unit_price", { scale: 4 });
+    const grnDate = r.date("grn_date");
+    if (channel === null || poNumber === null || poDate === null || partyCode === null || itemCode === null || qtyOrdered === null || qtySupplied === null) continue;
+    const key = `${channel}|${poNumber}|${itemCode}`;
+    if (out.has(key)) {
+      log.error("DUPLICATE_KEY", "customer_order", `PO ${poNumber} lists ${itemCode} more than once`, { rowRef: row.rowRef });
+      continue;
+    }
+    out.set(key, { rowRef: row.rowRef, key, channel, poNumber, poDate, partyCode, itemCode, qtyOrdered, qtySupplied, unitPrice, grnDate });
+  }
+  return [...out.values()];
 }
 
 function parseStockSnapshots(rows: Row[], log: IssueLog): StockSnapshotDraft[] {

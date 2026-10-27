@@ -163,9 +163,9 @@ export const stationeryDemoProfile: DemoProfile = {
       taxWithheld: { tcsPct: 0.5, tdsPct: 0.1 },
       payout: { cycleDays: 7, deliveryDays: 6, returnWindowDays: 7 }
     },
-    { id: "blinkit", label: "Blinkit (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null },
-    { id: "zepto", label: "Zepto (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null },
-    { id: "instamart", label: "Swiggy Instamart (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null }
+    { id: "blinkit", label: "Blinkit (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null, customerPurchaseOrders: true },
+    { id: "zepto", label: "Zepto (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null, customerPurchaseOrders: true },
+    { id: "instamart", label: "Swiggy Instamart (quick commerce)", orderCharges: [], returnCharges: [], taxWithheld: null, customerPurchaseOrders: true }
   ],
   segments: [
     {

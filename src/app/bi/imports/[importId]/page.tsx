@@ -170,23 +170,41 @@ export default async function ImportPage({ params }: { params: { importId: strin
   );
 }
 
-type TallyDetails = { company: string | null; vouchersRead: number; imported: Record<string, number>; skipped: Record<string, { count: number; examples: string[] }> };
+type AdapterDetails = {
+  company?: string | null;
+  vouchersRead?: number;
+  imported?: Record<string, number>;
+  skipped?: Record<string, { count: number; examples: string[] }>;
+  charges?: number;
+  lines?: number;
+  deposits?: { settlementId: string; depositDate: string; total: string }[];
+  columnsUsed?: Record<string, string>;
+};
 
 /** What a file adapter did, and that it is not verified against real exports yet. */
 function AdapterNote({ adapter }: { adapter: NonNullable<ImportSummary["adapter"]> }) {
-  const d = adapter.details as TallyDetails;
-  const imported = Object.values(d.imported ?? {}).reduce((s, n) => s + n, 0);
+  const d = adapter.details as AdapterDetails;
   const skipped = Object.entries(d.skipped ?? {});
+  const lines: string[] = [];
+  if (d.vouchersRead !== undefined) {
+    const imported = Object.values(d.imported ?? {}).reduce((s, n) => s + n, 0);
+    lines.push(`${d.company ? `${d.company}: ` : ""}${imported} of ${d.vouchersRead} vouchers converted.`);
+    if (skipped.length > 0) lines.push(`Not imported: ${skipped.map(([reason, s]) => `${s.count} × ${reason}`).join("; ")}.`);
+  }
+  if (d.charges !== undefined) lines.push(`${d.charges} charge line(s) converted.`);
+  for (const dep of d.deposits ?? []) lines.push(`Settlement ${dep.settlementId}: deposit of ₹${dep.total} on ${dep.depositDate} reconciled to its rows.`);
+  if (d.lines !== undefined) lines.push(`${d.lines} purchase order line(s) converted.`);
+  if (d.columnsUsed) lines.push(`Columns used: ${Object.entries(d.columnsUsed).map(([k, v]) => `${k} ← "${v}"`).join("; ")}.`);
   return (
     <div role="note" className="mt-3 max-w-2xl rounded-xl2 border border-mustard bg-mustard/15 p-3 text-sm">
       <p>
         <strong>{adapter.name}.</strong> {adapter.note}
       </p>
-      <p className="mt-1 text-graphite">
-        {d.company ? `${d.company}: ` : ""}
-        {imported} of {d.vouchersRead} vouchers converted.
-        {skipped.length > 0 && ` Not imported: ${skipped.map(([reason, s]) => `${s.count} × ${reason}`).join("; ")}.`}
-      </p>
+      {lines.map((l) => (
+        <p key={l} className="mt-1 text-graphite">
+          {l}
+        </p>
+      ))}
     </div>
   );
 }

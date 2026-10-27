@@ -11,6 +11,7 @@ const UNITS: Record<string, (v: number) => string> = {
   group_gross_margin: (v) => `${v.toFixed(1)}%`,
   group_discount_rate: (v) => `${v.toFixed(1)}%`,
   top5_share: (v) => `${v.toFixed(1)}%`,
+  channel_fill_rate: (v) => `${v.toFixed(1)}%`,
   dso: (v) => `${Math.round(v)} days`,
   payer_delay: (v) => `${Math.round(v)} days late`,
   item_stockout_days: (v) => `${Math.round(v)} days`,

@@ -47,8 +47,8 @@ This is the authoritative definition list. The code registry (`src/server/metric
 | `basket_pair_lift` | Pair lift | P(A∧B) ÷ (P(A)·P(B)) over invoices | Reported only with support ≥ configured minimum (default 20 invoices) |
 | `rfm_segment` | Customer segment | Quintile scores (5 = best) for recency, frequency (invoices in 365 days) and monetary (net sales in 365 days) among named customers active in 2 years; mapped to Champions / Loyal / New / Steady / Lapsing / At risk / Inactive | Rules in `src/server/analytics/customers.ts`; anonymous buyers (counter, marketplaces) excluded |
 | `lapsing_customer` | Lapsing customer | 3+ orders, lifetime value in the top 60%, silent > max(30 days, 2 × median gap), and ≥ 1.5 orders expected since the silence became unusual (from the customer's own purchases per calendar month) | Season-aware: a school in its usual off-season is not lapsing; one that skipped a season is |
-| `fill_rate` | Fill rate (quick commerce / B2B POs) | units supplied ÷ units ordered on purchase orders | Needs PO quantities from the platform (PO/GRN exports); `unavailable` from invoices alone |
-| `payout_lag_days` | Marketplace payout lag | mean(payout date − order date), by channel | From settlement reports; actual dates, not assumed cycles |
+| `fill_rate` | Fill rate (quick commerce / B2B POs) | Σ min(supplied, ordered) ÷ Σ ordered, over PO lines dated in the period (over-supply on one line never hides a shortfall on another) | Needs PO quantities from the platform (PO/GRN exports); `unavailable` from invoices alone |
+| `payout_lag_days` | Marketplace payout lag | mean, median and 90th percentile of (first settlement date − invoice date) over orders with a linked charge, by channel | From settlement reports; actual dates, not assumed cycles |
 
 ## C. Inventory
 

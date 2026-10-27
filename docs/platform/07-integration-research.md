@@ -98,3 +98,18 @@ Same method and limits as above. The official seller sites were unreachable from
 **Tax withheld by e-commerce operators:** GST TCS **0.5%** of net taxable supplies (s.52 CGST; Notification 15/2024-CT from 10 Jul 2024). Income-tax TDS **0.1%** under s.194-O from 1 Oct 2024 (s.393(1) of the Income-tax Act 2025 from 1 Apr 2026, L). Both are tax credits, not costs. Several 2026 blogs still quote 1%; they are out of date.
 
 **Decision:** file upload first (Amazon Settlement V2, Meesho payments + GST ZIP, Blinkit PO/GRN/debit notes) via adapters that map to canonical vouchers + `ChannelCharge`. Amazon SP-API comes second, using only Finance & Accounting and Inventory & Order Tracking roles (no PII). Quick commerce is modelled as a B2B customer with fill rate, not as a marketplace.
+
+### Status of the marketplace and quick-commerce file adapters (M10a, built 2026-10-27)
+
+All three adapters are **tested on hand-made fixtures only**. Each import is labelled unverified on the review screen.
+
+| Adapter | Input | Output | Confidence in the format |
+|---|---|---|---|
+| Amazon | Settlement Report V2 flat file (tab-separated) | channel charges. Fee GST merged into its fee; TCS/TDS as tax credits; storage/ads/TDS at period level. **Each settlement's rows must add up to its deposit** or the import is rejected | Columns M (documented layout); India fee and tax line names L. Unknown lines are kept as `other_fee` and listed |
+| Meesho | Payments export (Excel or CSV) | channel charges. Fees shown incl. GST split at an assumed 18%; compensation credited; unpaid sub-orders skipped. The sign convention is detected from the data | L (public samples). Unrecognised money columns are listed, not imported |
+| Blinkit / Zepto / Instamart | PO and GRN files (Excel or CSV), joined on PO + SKU; optional `sku_map.csv` | customer purchase-order lines → fill rate | L (common header aliases). The columns used are shown on the review screen; unmapped SKUs block the import rather than being guessed |
+
+**Not built yet:**
+* Meesho GST/TCS ZIP reports.
+* Quick-commerce debit notes (fill-rate penalties). They can be imported as channel charges through the template.
+* Amazon SP-API (M10b; needs the seller's account).

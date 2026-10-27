@@ -16,6 +16,7 @@ export const TEMPLATE_FILES = {
   stockSummary: "stock_summary.csv",
   outstanding: "outstanding.csv",
   channelCharges: "channel_charges.csv",
+  customerOrders: "customer_orders.csv",
   controlTotals: "control_totals.csv"
 } as const;
 
@@ -98,6 +99,12 @@ export const CHANNEL_CHARGE_COLUMNS = [
   "gst_amount"
 ] as const;
 
+/**
+ * Purchase orders a business customer (quick-commerce platform, distributor) placed, and what
+ * was supplied against them: the basis of fill rate. One row per PO and item.
+ */
+export const CUSTOMER_ORDER_COLUMNS = ["channel", "po_number", "po_date", "party_code", "item_code", "qty_ordered", "qty_supplied", "unit_price", "grn_date"] as const;
+
 export const TAX_WITHHELD_CHARGE_TYPES = ["tcs_gst", "tds_income_tax"] as const;
 
 export const CONTROL_TOTAL_COLUMNS = ["metric", "period_from", "period_to", "value"] as const;
@@ -120,6 +127,7 @@ export type SettlementRow = Record<(typeof SETTLEMENT_COLUMNS)[number], string>;
 export type StockSummaryRow = Record<(typeof STOCK_SUMMARY_COLUMNS)[number], string>;
 export type OutstandingRow = Record<(typeof OUTSTANDING_COLUMNS)[number], string>;
 export type ChannelChargeRow = Record<(typeof CHANNEL_CHARGE_COLUMNS)[number], string>;
+export type CustomerOrderRow = Record<(typeof CUSTOMER_ORDER_COLUMNS)[number], string>;
 export type ControlTotalRow = Record<(typeof CONTROL_TOTAL_COLUMNS)[number], string>;
 
 export type TemplateVoucherType = "sales_invoice" | "sales_return" | "purchase_invoice" | "purchase_return";

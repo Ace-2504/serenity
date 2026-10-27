@@ -1,4 +1,5 @@
 import { Prisma, type Finding, type FindingStatus } from "@prisma/client";
+import { fillRate } from "@/server/analytics/channels";
 import { concentration } from "@/server/analytics/customers";
 import { stockoutDays, stockPositions } from "@/server/analytics/inventory";
 import { dataSpan, pct, profitability, type Period } from "@/server/analytics/profitability";
@@ -183,6 +184,12 @@ export async function measure(db: TenantDb, tenantId: string, f: Finding, plan: 
           AND v."partyId" IN (${Prisma.join(subjects)})`;
       if (!row || Number(row.n) === 0) return { value: null, realised: null, note: "No invoices from these customers fell due in the period." };
       return { value: row.delay, realised: null, note: "Invoices still unpaid at the check date count as late up to that date." };
+    }
+    case "channel_fill_rate": {
+      const channel = f.dedupeKey.split("|")[1];
+      const row = (await fillRate(db, tenantId, window, "channel")).find((r) => r.key === channel);
+      if (!row || row.fillRate === null) return { value: null, realised: null, note: "No purchase orders from this platform in the period." };
+      return { value: row.fillRate * 100, realised: null };
     }
     case "top5_share": {
       const c = await concentration(db, tenantId, window);

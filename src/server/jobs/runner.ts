@@ -20,6 +20,7 @@ const STEP_LABELS: Record<string, string> = {
   vouchers: "Saving vouchers",
   lines: "Saving voucher lines",
   charges: "Saving channel charges",
+  customer_orders: "Saving customer purchase orders",
   deletions: "Marking deleted vouchers",
   snapshots: "Saving stock and outstanding snapshots",
   ledger: "Rebuilding the stock ledger",

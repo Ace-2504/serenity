@@ -1,0 +1,25 @@
+settlement-id	settlement-start-date	settlement-end-date	deposit-date	total-amount	currency	transaction-type	order-id	merchant-order-id	adjustment-id	shipment-id	marketplace-name	amount-type	amount-description	amount	fulfillment-id	posted-date	posted-date-time	order-item-code	merchant-order-item-id	merchant-adjustment-item-id	sku	quantity-purchased	promotion-id
+1001	01.04.2025 00:00:00 UTC	14.04.2025 00:00:00 UTC	16.04.2025 06:12:44 UTC	330.35	INR																		
+1001						Order	408-0000001-0000001				Amazon.in	ItemPrice	Principal	448.00		10.04.2025					NB-1	2	
+1001						Order	408-0000001-0000001				Amazon.in	ItemPrice	Tax	52.00		10.04.2025					NB-1	2	
+1001						Order	408-0000001-0000001				Amazon.in	ItemFees	Commission	-40.00		10.04.2025					NB-1		
+1001						Order	408-0000001-0000001				Amazon.in	ItemFees	Commission IGST	-7.20		10.04.2025					NB-1		
+1001						Order	408-0000001-0000001				Amazon.in	ItemFees	FixedClosingFee	-10.00		10.04.2025					NB-1		
+1001						Order	408-0000001-0000001				Amazon.in	ItemFees	FixedClosingFee IGST	-1.80		10.04.2025					NB-1		
+1001						Order	408-0000001-0000001				Amazon.in	ItemFees	Weight Handling Fee	-45.00		10.04.2025					NB-1		
+1001						Order	408-0000001-0000001				Amazon.in	ItemFees	Weight Handling Fee IGST	-8.10		10.04.2025					NB-1		
+1001						Order	408-0000001-0000001				Amazon.in	ItemWithheldTax	TCS-IGST	-2.24		10.04.2025					NB-1		
+1001						Order	408-0000002-0000002				Amazon.in	ItemPrice	Principal	224.00		10.04.2025					PEN-1	1	
+1001						Order	408-0000002-0000002				Amazon.in	ItemPrice	Tax	26.88		10.04.2025					PEN-1	1	
+1001						Order	408-0000002-0000002				Amazon.in	ItemFees	Commission	-20.00		10.04.2025					PEN-1		
+1001						Order	408-0000002-0000002				Amazon.in	ItemFees	Commission IGST	-3.60		10.04.2025					PEN-1		
+1001						Order	408-0000002-0000002				Amazon.in	ItemFees	FixedClosingFee	-10.00		10.04.2025					PEN-1		
+1001						Order	408-0000002-0000002				Amazon.in	ItemFees	FixedClosingFee IGST	-1.80		10.04.2025					PEN-1		
+1001						Order	408-0000002-0000002				Amazon.in	ItemWithheldTax	TCS-IGST	-1.12		10.04.2025					PEN-1		
+1001						Order	408-0000002-0000002				Amazon.in	ItemFees	MysteryFee	-5.00		10.04.2025					PEN-1		
+1001						Refund	408-0000001-0000001				Amazon.in	ItemPrice	Principal	-224.00		10.04.2025					NB-1		
+1001						Refund	408-0000001-0000001				Amazon.in	ItemPrice	Tax	-26.00		10.04.2025					NB-1		
+1001						Refund	408-0000001-0000001				Amazon.in	ItemFees	Commission	20.00		10.04.2025					NB-1		
+1001						Refund	408-0000001-0000001				Amazon.in	ItemFees	RefundCommission	-4.00		10.04.2025					NB-1		
+1001						other-transaction					Amazon.in	other-transaction	TDS (Section 194-O)	-0.67		10.04.2025							
+1001						other-transaction					Amazon.in	other-transaction	Storage Fee	-30.00		10.04.2025							

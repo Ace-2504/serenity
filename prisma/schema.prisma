@@ -329,6 +329,7 @@ enum DataSourceKind {
   tally_xml
   tally_http
   busy_excel
+  marketplace_file
 }
 
 enum ImportStatus {
@@ -410,6 +411,7 @@ model Tenant {
   auditLogs            AuditLog[]
   importFiles          ImportFile[]
   channelCharges       ChannelCharge[]
+  customerOrderLines   CustomerOrderLine[]
   billAllocations      BillAllocation[]
   findings             Finding[]
   findingOutcomes      FindingOutcome[]
@@ -498,24 +500,25 @@ model ImportIssue {
 /// Raw source payload, versioned. Same sourceKey with a different contentHash is a
 /// correction: a new version is written and the previous one is superseded.
 model SourceRecord {
-  id            String          @id @default(uuid())
-  tenantId      String
-  dataSourceId  String
-  importBatchId String
-  entity        String
-  sourceKey     String
-  version       Int
-  contentHash   String
-  payload       Json
-  supersededAt  DateTime?
-  createdAt     DateTime        @default(now())
-  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  dataSource    DataSource      @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
-  importBatch   ImportBatch     @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
-  parties       Party[]
-  items         Item[]
-  vouchers      Voucher[]
-  charges       ChannelCharge[]
+  id                 String              @id @default(uuid())
+  tenantId           String
+  dataSourceId       String
+  importBatchId      String
+  entity             String
+  sourceKey          String
+  version            Int
+  contentHash        String
+  payload            Json
+  supersededAt       DateTime?
+  createdAt          DateTime            @default(now())
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dataSource         DataSource          @relation(fields: [dataSourceId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  importBatch        ImportBatch         @relation(fields: [importBatchId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  parties            Party[]
+  items              Item[]
+  vouchers           Voucher[]
+  charges            ChannelCharge[]
+  customerOrderLines CustomerOrderLine[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, entity, sourceKey, version])
@@ -524,29 +527,30 @@ model SourceRecord {
 }
 
 model Party {
-  id              String                @id @default(uuid())
-  tenantId        String
-  dataSourceId    String
-  sourceKey       String
-  sourceRecordId  String
-  name            String
-  kind            PartyKind
+  id                 String                @id @default(uuid())
+  tenantId           String
+  dataSourceId       String
+  sourceKey          String
+  sourceRecordId     String
+  name               String
+  kind               PartyKind
   /// Counter cash sales and marketplaces: individual buyers are not identifiable,
   /// so these parties are excluded from customer analytics.
-  anonymousBuyers Boolean               @default(false)
-  gstin           String?
-  stateCode       String?
-  city            String?
-  segmentTag      String?
-  creditDays      Int?
-  phone           String?
-  email           String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sourceRecord    SourceRecord          @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
-  vouchers        Voucher[]
-  outstanding     OutstandingSnapshot[]
+  anonymousBuyers    Boolean               @default(false)
+  gstin              String?
+  stateCode          String?
+  city               String?
+  segmentTag         String?
+  creditDays         Int?
+  phone              String?
+  email              String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord       SourceRecord          @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  vouchers           Voucher[]
+  outstanding        OutstandingSnapshot[]
+  customerOrderLines CustomerOrderLine[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, sourceKey])
@@ -567,32 +571,33 @@ model ItemGroup {
 }
 
 model Item {
-  id             String          @id @default(uuid())
-  tenantId       String
-  dataSourceId   String
-  sourceKey      String
-  sourceRecordId String
-  sku            String?
-  name           String
-  itemGroupId    String?
-  uom            String
-  hsnCode        String?
-  gstRate        Decimal?        @db.Decimal(5, 2)
-  isActive       Boolean         @default(true)
-  tracksBatches  Boolean         @default(false)
+  id                 String              @id @default(uuid())
+  tenantId           String
+  dataSourceId       String
+  sourceKey          String
+  sourceRecordId     String
+  sku                String?
+  name               String
+  itemGroupId        String?
+  uom                String
+  hsnCode            String?
+  gstRate            Decimal?            @db.Decimal(5, 2)
+  isActive           Boolean             @default(true)
+  tracksBatches      Boolean             @default(false)
   /// Trade-specific attributes, validated by the tenant's domain pack.
-  attributes     Json            @default("{}")
+  attributes         Json                @default("{}")
   /// Optional link to the storefront variant selling the same SKU online.
-  variantId      String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sourceRecord   SourceRecord    @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
-  itemGroup      ItemGroup?      @relation(fields: [itemGroupId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  batches        Batch[]
-  voucherLines   VoucherLine[]
-  stockMovements StockMovement[]
-  stockSnapshots StockSnapshot[]
+  variantId          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord       SourceRecord        @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  itemGroup          ItemGroup?          @relation(fields: [itemGroupId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  batches            Batch[]
+  voucherLines       VoucherLine[]
+  stockMovements     StockMovement[]
+  stockSnapshots     StockSnapshot[]
+  customerOrderLines CustomerOrderLine[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, dataSourceId, sourceKey])
@@ -956,4 +961,37 @@ model Job {
 
   @@index([status, runAfter])
   @@index([tenantId, createdAt])
+}
+
+/// A business customer's purchase order line (quick-commerce platform, distributor) and the
+/// quantity supplied against it: the basis of fill rate. Items and parties come from the books.
+model CustomerOrderLine {
+  id             String        @id @default(uuid())
+  tenantId       String
+  dataSourceId   String
+  sourceKey      String
+  sourceRecordId String
+  channel        String
+  poNumber       String
+  poDate         DateTime      @db.Date
+  partyId        String
+  itemId         String
+  qtyOrdered     Decimal       @db.Decimal(18, 3)
+  qtySupplied    Decimal       @db.Decimal(18, 3)
+  unitPrice      Decimal?      @db.Decimal(18, 4)
+  grnDate        DateTime?     @db.Date
+  status         VoucherStatus @default(active)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceRecord   SourceRecord  @relation(fields: [sourceRecordId, tenantId], references: [id, tenantId])
+  party          Party         @relation(fields: [partyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  item           Item          @relation(fields: [itemId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, dataSourceId, sourceKey])
+  @@index([tenantId, sourceRecordId])
+  @@index([tenantId, partyId])
+  @@index([tenantId, itemId])
+  @@index([tenantId, channel, poDate])
 }

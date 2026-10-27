@@ -5,6 +5,8 @@ import { generateDemoDataset, type DemoDataset } from "@/server/demo/engine";
 import { datasetToFiles } from "@/server/demo/files";
 import { scaledProfile } from "@/server/demo/profiles/scale";
 import { stationeryDemoProfile } from "@/server/demo/profiles/stationery";
+import { fillRate } from "@/server/analytics/channels";
+import { shift } from "@/server/findings/context";
 import { actOnFinding, FindingActionError, generateDrafts, measureOutcomes, refreshFindings, trackRecord, type MeasurePlan } from "@/server/findings/engine";
 import type { FindingDraft } from "@/server/findings/types";
 import { commitImport, stageImport } from "@/server/ingest/pipeline";
@@ -82,6 +84,19 @@ describe("rules surface the planted problems, and only those", () => {
       expect(["amazon", "meesho", "own_web"]).toContain(d.dedupeKey.split("|")[1]);
       expect(d.impactInr).toBeGreaterThan(0);
     }
+  });
+
+  it("low fill rate: only quick-commerce channels below target, with the shortfall the data shows", async () => {
+    const window = { from: shift(data.meta.periodTo, -89), to: data.meta.periodTo };
+    const actual = new Map((await fillRate(db, tenantId, window, "channel")).map((r) => [r.key, r]));
+    for (const d of byRule("FILL_RATE_LOW")) {
+      const channel = d.dedupeKey.split("|")[1];
+      expect(["blinkit", "zepto", "instamart"]).toContain(channel);
+      expect(actual.get(channel)!.fillRate!).toBeLessThan(0.95);
+      expect(d.measurePlan.baseline).toBeCloseTo(actual.get(channel)!.fillRate! * 100, 6);
+    }
+    const below = [...actual.values()].filter((r) => r.fillRate! < 0.95 && r.ordered >= 100).map((r) => r.key).sort();
+    expect(byRule("FILL_RATE_LOW").map((d) => d.dedupeKey.split("|")[1]).sort()).toEqual(below);
   });
 
   it("every finding is complete: action, evidence, formula, assumptions and a measurable plan", () => {

@@ -45,5 +45,7 @@ export const RULE_CONFIG = {
   stockoutMinDays: 45,
   replenishmentDays: 21,
   channelLossMinInvoices: 5,
-  channelLossMaxFindings: 10
+  channelLossMaxFindings: 10,
+  fillRateTarget: 0.95,
+  fillRateMinUnits: 100
 } as const;

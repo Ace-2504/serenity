@@ -6,6 +6,7 @@ import {
   TAX_WITHHELD_CHARGE_TYPES,
   type ChannelChargeRow,
   type ControlTotalRow,
+  type CustomerOrderRow,
   type ItemRow,
   type OutstandingRow,
   type PartyRow,
@@ -26,7 +27,7 @@ import {
 
 const DAY_MS = 86_400_000;
 
-export const GENERATOR_VERSION = "1.0.0";
+export const GENERATOR_VERSION = "1.1.0";
 
 export type DemoDataset = {
   meta: {
@@ -46,6 +47,7 @@ export type DemoDataset = {
   stockSummary: StockSummaryRow[];
   outstanding: OutstandingRow[];
   channelCharges: ChannelChargeRow[];
+  customerOrders: CustomerOrderRow[];
   controlTotals: ControlTotalRow[];
   groundTruth: GroundTruth;
 };
@@ -68,6 +70,8 @@ export type GroundTruth = {
   /** Contribution per channel and item: net sales - COGS - channel charges (ex-GST, ex tax withheld). Paise. */
   contributionByChannelItem: { channel: string; itemCode: string; netSales: number; cogs: number; charges: number; contribution: number }[];
   lostDemandQtyByChannel: Record<string, number>;
+  /** Quick-commerce purchase orders: units ordered and supplied per channel (fill rate = supplied / ordered). */
+  purchaseOrderUnitsByChannel: Record<string, { ordered: number; supplied: number }>;
   demandQtyByChannel: Record<string, number>;
 };
 
@@ -417,6 +421,9 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
   });
 
   const lostDemand: Record<string, number> = {};
+  const customerOrders: CustomerOrderRow[] = [];
+  const poLineIndex = new Map<string, CustomerOrderRow>();
+  const poUnits: Record<string, { ordered: number; supplied: number }> = {};
   const totalDemand: Record<string, number> = {};
 
   for (let day = 0; day < days; day += 1) {
@@ -462,10 +469,36 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
       const seg = customer.segment;
       const channel = channelById.get(seg.channel)!;
       const lines: SalesLine[] = [];
+      const poNo = channel.customerPurchaseOrders ? nextNo(`PO-${seg.channel.toUpperCase()}`, day) : null;
       for (const want of intent.lines) {
         totalDemand[seg.channel] = (totalDemand[seg.channel] ?? 0) + want.qty;
         const qty = Math.min(want.qty, stockQty[want.itemIdx]);
         lostDemand[seg.channel] = (lostDemand[seg.channel] ?? 0) + (want.qty - qty);
+        if (poNo) {
+          // The platform's PO asks for what it wants; the shortfall shows up as fill rate below 100%.
+          const units = (poUnits[seg.channel] ??= { ordered: 0, supplied: 0 });
+          const existing = poLineIndex.get(`${poNo}|${want.itemIdx}`);
+          if (existing) {
+            existing.qty_ordered = String(Number(existing.qty_ordered) + want.qty);
+            existing.qty_supplied = String(Number(existing.qty_supplied) + Math.max(qty, 0));
+          } else {
+            const row: CustomerOrderRow = {
+              channel: seg.channel,
+              po_number: poNo,
+              po_date: isoOf(day),
+              party_code: customer.code,
+              item_code: items[want.itemIdx].code,
+              qty_ordered: String(want.qty),
+              qty_supplied: String(Math.max(qty, 0)),
+              unit_price: formatPaise(priceFor(items[want.itemIdx], day, seg.priceTier)),
+              grn_date: qty > 0 ? isoOf(day) : ""
+            };
+            customerOrders.push(row);
+            poLineIndex.set(`${poNo}|${want.itemIdx}`, row);
+          }
+          units.ordered += want.qty;
+          units.supplied += Math.max(qty, 0);
+        }
         if (qty <= 0) {
           continue;
         }
@@ -543,7 +576,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
 
       for (const line of lines) {
         const row = voucherRow("sales_invoice", no, day, customer.code, seg.channel, dueDay, "", line);
-        row.order_ref = seg.billing === "platform" ? `${seg.channel.toUpperCase()}-${no.split("/").pop()}-${fyOf(day)}` : "";
+        row.order_ref = seg.billing === "platform" ? `${seg.channel.toUpperCase()}-${no.split("/").pop()}-${fyOf(day)}` : (poNo ?? "");
         vouchers.push(row);
         if (line.cost !== null && seg.returnRate > 0 && simRng.chance(seg.returnRate)) {
           const returnDay =
@@ -816,6 +849,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
     stockSummary,
     outstanding,
     channelCharges,
+    customerOrders,
     controlTotals: buildControlTotals(vouchers, settlements, channelCharges, profile.start, profile.end),
     groundTruth
   };
@@ -890,6 +924,7 @@ export function generateDemoDataset(profile: DemoProfile, seed: number): DemoDat
         .map((e) => ({ ...e, contribution: e.netSales - e.cogs - e.charges }))
         .sort((a, b) => a.channel.localeCompare(b.channel) || a.itemCode.localeCompare(b.itemCode)),
       lostDemandQtyByChannel: lostDemand,
+      purchaseOrderUnitsByChannel: poUnits,
       demandQtyByChannel: totalDemand
     };
   }

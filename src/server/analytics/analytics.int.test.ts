@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
 import { getDomainPack } from "@/domain/packs";
 import { prisma } from "@/lib/prisma";
+import { fillRate, payoutLag } from "@/server/analytics/channels";
 import { concentration, customerRfm, orderMetrics } from "@/server/analytics/customers";
 import { averageInventory, stockAgeing, stockoutDays, stockPositions, turnoverMetrics } from "@/server/analytics/inventory";
 import { ageBills, averageOpen, creditVolume, daysMetric, openBills, sumPending } from "@/server/analytics/working-capital";
@@ -208,5 +209,24 @@ describe("customers", () => {
     expect(c.top10Share!).toBeGreaterThanOrEqual(c.top5Share!);
     expect(c.hhi).toBeGreaterThan(0);
     expect(c.top.reduce((s, t) => s + t.share, 0)).toBeCloseTo(c.top10Share!, 6);
+  });
+});
+
+describe("channels", () => {
+  it("fill rate per quick-commerce channel equals the generator's purchase-order units", async () => {
+    const rows = await fillRate(db, tenantId, { from: data.meta.periodFrom, to: data.meta.periodTo }, "channel");
+    const truth = data.groundTruth.purchaseOrderUnitsByChannel;
+    expect(rows.map((r) => [r.key, r.ordered, r.supplied]).sort()).toEqual(Object.entries(truth).map(([k, v]) => [k, v.ordered, v.supplied]).sort());
+    expect(Object.keys(truth).sort()).toEqual(["blinkit", "instamart", "zepto"]);
+  });
+
+  it("payout lag uses actual settlement dates for every marketplace", async () => {
+    const lag = await payoutLag(db, tenantId, { from: data.meta.periodFrom, to: data.meta.periodTo });
+    expect(lag.map((l) => l.channel).sort()).toEqual(["amazon", "meesho", "own_web"]);
+    // Marketplaces pay after delivery and the return window; the demo's payment gateway settles the same day.
+    for (const l of lag) {
+      if (l.channel === "own_web") expect(l.medianDays).toBe(0);
+      else expect(l.medianDays).toBeGreaterThanOrEqual(stationeryDemoProfile.channels.find((c) => c.id === l.channel)!.payout!.deliveryDays);
+    }
   });
 });
