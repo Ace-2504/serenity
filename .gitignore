@@ -13,3 +13,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 tsconfig.tsbuildinfo
+
+# Generated demo datasets (reproducible with npm run demo:generate)
+demo-data/
