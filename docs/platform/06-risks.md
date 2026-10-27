@@ -57,3 +57,5 @@ Likelihood/impact: H/M/L.
 | Serverless (Vercel) time limits for imports and jobs | H | M | Imports above a size threshold go to the worker; recommended deployment for real SMEs is a single box (Docker Compose) on-prem or a private VPS |
 | Backups of financial data | M | H | Documented `pg_dump` schedule plus a restore drill |
 | Scope creep | H | H | Vertical slices; non-goals list; each milestone must demo |
+| Long imports inside web requests | M | M | Full 2-year import takes ~80 s; route limit 300 s. Move to a Postgres-backed job queue (M7) before onboarding larger businesses |
+| Pre-existing storefront debt | — | L | 10 storefront FKs without indexes; storefront home overflows at phone width. Fix when the storefront is next touched |

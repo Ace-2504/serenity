@@ -41,7 +41,7 @@ export default function GlobalBackHomeNav({ session }: { session: NavSession | n
         </div>
 
         {!isAuth ? (
-          <nav className="flex items-center gap-1 text-sm font-medium">
+          <nav className="flex flex-wrap items-center gap-1 text-sm font-medium">
             <Link
               href="/c/notebooks-and-journals"
               className="rounded-full px-3 py-1.5 text-graphite hover:bg-paper hover:text-ink"

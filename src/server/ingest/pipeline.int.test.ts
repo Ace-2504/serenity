@@ -5,17 +5,13 @@ import { forTenant } from "@/server/db/tenant";
 import { generateDemoDataset, type DemoDataset } from "@/server/demo/engine";
 import { datasetToFiles } from "@/server/demo/files";
 import type { DemoProfile } from "@/server/demo/profile";
+import { scaledProfile } from "@/server/demo/profiles/scale";
 import { stationeryDemoProfile } from "@/server/demo/profiles/stationery";
 import { commitImport, ImportError, stageImport } from "@/server/ingest/pipeline";
 import { formatPaise, parsePaise } from "@/server/ingest/template";
 
 /** Four months and a fraction of the customers and items: same shape as the full demo, fast to import. */
-const smallProfile: DemoProfile = {
-  ...stationeryDemoProfile,
-  end: "2025-01-31",
-  groups: stationeryDemoProfile.groups.map((g) => ({ ...g, count: Math.min(g.count, 6) })),
-  segments: stationeryDemoProfile.segments.map((s) => ({ ...s, count: Math.min(s.count, 12) }))
-};
+const smallProfile: DemoProfile = scaledProfile(stationeryDemoProfile, { end: "2025-01-31", maxItemsPerGroup: 6, maxPartiesPerSegment: 12 });
 
 const tenants: string[] = [];
 

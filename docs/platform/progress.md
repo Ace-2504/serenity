@@ -92,3 +92,100 @@ Covered:
 * The generator suite takes ~24 s (three full generations plus row-level checks). Acceptable for now; it can share one generated dataset across files later.
 
 **Next: M3 — import pipeline** (template parsing with Zod, staging, validation report, idempotent commit, file-hash dedup, corrections, reconciliation to control totals, `ChannelCharge` table).
+
+## M3 — Import pipeline (2026-10-27)
+
+![Import review screen: change preview and reconciliation for the full demo](screenshots/import-review.png)
+
+**Implemented**
+* **Parser** (`src/server/ingest/parse.ts`): CSV via `csv-parse`.
+  * Handles BOM, CRLF, quoted commas and the formula guard.
+  * Amounts and quantities become exact decimals.
+  * Every problem becomes an issue with `file:line` and field; the parser never throws on bad data.
+  * Limits: 50 MB per file, 1 M rows per file.
+* **Validation** (`validate.ts`):
+  * line arithmetic to the paisa;
+  * tax within ₹1 (warning) or rejected;
+  * consistent voucher headers;
+  * unique codes;
+  * party roles;
+  * references to earlier imports;
+  * returns (party, date, quantity);
+  * settlements (unknown bill, over-settled);
+  * channel-charge orders;
+  * domain-pack item attributes;
+  * vouchers inside the stated period;
+  * **control-total reconciliation**.
+* **Staging** (`pipeline.ts`): stores the exact bytes (`ImportFile`) and a preview of new / changed / unchanged / removed-at-source records per entity, plus all issues.
+* **Commit**:
+  * Re-verifies the stored files by SHA-256, re-validates against the current database, and writes in one transaction.
+  * **Reconciles the database against the control totals inside that transaction**, so a mismatch rolls everything back; "committed" always means "reconciled".
+  * A per-data-source advisory lock serialises concurrent imports.
+* **Idempotency and corrections**:
+  * Re-uploading the latest committed bytes is a no-op.
+  * Changed records get a new `SourceRecord` version and the old one is superseded; ids stay stable, so links survive.
+  * Full-period semantics mark missing records `deleted_at_source` and restore them if they come back.
+* **Schema**: `ChannelCharge`, `BillAllocation`, `ImportFile`, snapshot lineage, `Voucher.orderRef`, `Party.anonymousBuyers` (a rename, not drop+add). Indexes behind every platform foreign key.
+* **App**:
+  * `/bi/imports`: onboarding (demo or create business), upload, history, data-source freshness.
+  * `/bi/imports/[id]`: change preview, reconciliation, issues with row references, commit.
+  * `/bi/template`: column documentation and downloadable examples.
+  * APIs under `/api/bi/*` with Zod input validation and membership roles (`owner_admin` / `accountant` can import; `analyst` can view).
+* **Demo**:
+  * Quick (6 months) and full (2 years) demo businesses go through the same stage → commit path.
+  * Demo businesses are flagged, show a persistent banner, and **refuse uploads**, so demo and real data never mix.
+* Zepto and Swiggy Instamart added to the demo as quick-commerce buyers.
+
+**Performance (this container, PostgreSQL 16)**
+
+| Dataset | Stage | Commit | Re-upload same files |
+|---|---|---|---|
+| Quick demo (6 months, ~10k voucher rows) | ~1 s | ~5 s | — |
+| Full demo (2 years, 144k voucher lines, 80k vouchers, 108k source records) | 15 s | 75–83 s | 6 s (no-op) |
+
+Three problems were found and fixed by measuring rather than guessing:
+* **Missing foreign-key indexes** made cascading deletes quadratic: tenant delete took over 10 minutes, now 11 s.
+* **Prisma `createMany`** was the commit bottleneck (155 s). Large tables now use a `jsonb_to_recordset` bulk insert that enforces `tenantId` on every row.
+* **Stale planner statistics** inside the commit transaction gave nested-loop plans (reconciliation 5.8 s → 18 ms after `ANALYZE`). The commit now ANALYZEs the tables it loaded, and reconciliation uses explicit joins.
+
+**Tests (actual results)**
+```
+npm test            7 files, 81 tests passed
+npm run test:int    3 files, 27 tests passed (~34 s)
+npm run lint / tsc / build   clean (1 pre-existing lint warning)
+```
+* Parser/validator (30): the full demo bundle has 0 errors and an exact match on all 8 control totals; one test per failure mode; template docs and examples stay consistent.
+* Pipeline against Postgres (12):
+  * stage preview; commit and reconcile;
+  * returns and charges linked;
+  * duplicate upload is a no-op;
+  * a corrected invoice becomes version 2 with the same id;
+  * deleted-at-source and restore;
+  * an interrupted commit leaves nothing behind and can be retried;
+  * errors block commit;
+  * bad domain attributes rejected;
+  * **two concurrent commits → exactly one succeeds**;
+  * cross-tenant access refused;
+  * every platform foreign key has an index.
+* API (6): 401 / 404 / 403 role rules, demo upload refused (409), owner stage → commit, cross-business 404.
+* Browser walkthrough (Playwright, production build):
+  * sign in → onboarding → quick demo (12.6 s) → 8/8 totals match;
+  * create a real business → broken upload rejected with 3 row-level errors;
+  * full demo through the UI in 114 s;
+  * no horizontal scroll at 390 px on BI pages.
+
+**Bugs the tests caught in my own code (all fixed)**
+* The concurrent-commit test found the batch status was read before taking the lock, so two commits could both report success.
+* The browser walkthrough found that uploads were accepted into demo businesses.
+* At phone width, a grid column stretched to the table's minimum width.
+
+**Known limitations**
+* Imports run inside the web request (fine self-hosted; the full demo needs the 300 s route limit). A background job queue comes with M7.
+* Excel (.xlsx) upload is not supported yet: CSV only. The template page says so implicitly by asking for CSV.
+* Only the template adapter exists. Tally XML (M4) and marketplace settlement files (M10a) will reuse this pipeline.
+* Storefront debt left as found:
+  * 10 storefront foreign keys without indexes;
+  * the storefront home page overflows by 83 px at 390 px width.
+  * I fixed only the shared top-nav wrapping, which affected every page.
+
+**Next: M4 — Tally XML file adapter**, or **M5 — profitability & inventory analytics** if a visible dashboard matters more right now.
