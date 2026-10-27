@@ -25,10 +25,17 @@ x-app: &app
     SMTP_URL: ${SMTP_URL:-}
     SMTP_FROM: ${SMTP_FROM:-}
     TRUST_PROXY: ${TRUST_PROXY:-}
+    TALLY_ALLOW_REMOTE: ${TALLY_ALLOW_REMOTE:-}
+    AMAZON_SP_CLIENT_ID: ${AMAZON_SP_CLIENT_ID:-}
+    AMAZON_SP_CLIENT_SECRET: ${AMAZON_SP_CLIENT_SECRET:-}
+    AMAZON_SP_REFRESH_TOKEN: ${AMAZON_SP_REFRESH_TOKEN:-}
     COOKIE_SECURE: ${COOKIE_SECURE:-}
   depends_on:
     db:
       condition: service_healthy
+  # Lets the containers reach TallyPrime running on this same computer as http://host.docker.internal:9000.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
 
 services:
   db:

@@ -2,6 +2,11 @@ import Link from "next/link";
 import { formatDate, formatDateTime } from "@/components/bi/format";
 import { Onboarding } from "@/components/bi/onboarding";
 import { StatusChip } from "@/components/bi/status-chip";
+import { TallyConnect } from "@/components/bi/tally-connect";
+import { AmazonSync } from "@/components/bi/amazon-sync";
+import { RegisterUpload } from "@/components/bi/register-upload";
+import { REGISTER_FIELDS, VOUCHER_TYPE_LABELS } from "@/server/adapters/register";
+import { amazonConfigured } from "@/server/adapters/marketplace/sp-api";
 import { UploadForm } from "@/components/bi/upload-form";
 import { CAN_IMPORT, getBiContext } from "@/server/bi/context";
 
@@ -16,6 +21,7 @@ export default async function ImportsPage() {
     bi.db.dataSource.findMany({ orderBy: { createdAt: "asc" } }),
     bi.db.importBatch.findMany({ orderBy: { createdAt: "desc" }, take: 30, include: { dataSource: { select: { name: true } } } })
   ]);
+  const tally = sources.find((src) => src.kind === "tally_http");
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
@@ -36,6 +42,30 @@ export default async function ImportsPage() {
           </section>
         ) : (
           <p className="text-sm text-graphite">Your role ({bi.role}) can view imports but not upload.</p>
+        )}
+        {!bi.tenant.isDemo && CAN_IMPORT.includes(bi.role) && (
+          <section className="rounded-xl2 border border-mist bg-canvas p-5">
+            <h2 className="font-display text-2xl">Registers from BUSY or a spreadsheet</h2>
+            <div className="mt-2">
+              <RegisterUpload fields={REGISTER_FIELDS.map((f) => ({ key: f.key, label: f.label, required: f.required }))} voucherTypes={VOUCHER_TYPE_LABELS} />
+            </div>
+          </section>
+        )}
+        {!bi.tenant.isDemo && CAN_IMPORT.includes(bi.role) && (
+          <section className="rounded-xl2 border border-mist bg-canvas p-5">
+            <h2 className="font-display text-2xl">Live sync from TallyPrime</h2>
+            <div className="mt-2">
+              <TallyConnect initial={(tally?.settings as Parameters<typeof TallyConnect>[0]["initial"]) ?? null} connected={!!tally} />
+            </div>
+          </section>
+        )}
+        {!bi.tenant.isDemo && CAN_IMPORT.includes(bi.role) && (
+          <section className="rounded-xl2 border border-mist bg-canvas p-5">
+            <h2 className="font-display text-2xl">Amazon.in payouts</h2>
+            <div className="mt-2">
+              <AmazonSync configured={amazonConfigured()} />
+            </div>
+          </section>
         )}
         <section className="rounded-xl2 border border-mist bg-canvas p-5">
           <h2 className="font-display text-2xl">Data sources</h2>

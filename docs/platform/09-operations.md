@@ -52,6 +52,18 @@ Sign-in cookies are marked *Secure*, so browsers send them only over HTTPS (or t
 
 Do not expose port 3000 directly to the internet.
 
+## 2a. Connecting Tally, BUSY and Amazon
+
+None of these connectors has yet been tested against a real TallyPrime, real BUSY exports or a real seller account. They are tested against simulated servers and sample files. Check the first imports' totals against the source's own registers.
+
+* **TallyPrime (live sync).** In TallyPrime, switch on its server (connectivity, usually port 9000) and keep the company open. In Serenity, go to **Imports → Live sync from TallyPrime**:
+  * enter the address: `http://<tally-computer>:9000`, or `http://host.docker.internal:9000` when Tally runs on the same computer as Docker;
+  * press **Test connection**, choose the company, save, then **Sync now**.
+  * A sync re-reads masters and the Day Book month by month, from the date the books begin (or the date you set) to today, and waits for your review. You can choose to save syncs without errors automatically, and to sync once a day; the daily sync needs the `worker` service.
+  * Only local and private addresses are accepted unless `TALLY_ALLOW_REMOTE=1`.
+* **BUSY or any spreadsheet.** Export the sales, purchase and return registers **with item details** for one period as Excel (.xlsx) or CSV, and upload them together under **Imports → Registers from BUSY or a spreadsheet**. Confirm which column is which; the mapping is remembered for files with the same headers. Registers carry no opening stock or receipts and payments; add those through the template if you need stock and cash reports.
+* **Amazon.in (Selling Partner API).** Register an SP-API application in Seller Central and authorise it for your seller account. Put its client id, client secret and refresh token in `.env` (`AMAZON_SP_CLIENT_ID`, `AMAZON_SP_CLIENT_SECRET`, `AMAZON_SP_REFRESH_TOKEN`), then restart. **Imports → Amazon.in payouts** then reads closed payouts for a period. Each payout must add up to its deposit, and the result waits for your review. The credentials stay in the environment: never in the database, the page or the logs.
+
 ## 3. What protects the data
 
 | Layer | What it does | Where |

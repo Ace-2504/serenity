@@ -450,6 +450,8 @@ model DataSource {
   capabilities         Json           @default("{}")
   /// Adapter-specific incremental cursor, e.g. Tally AlterIDs.
   cursor               Json?
+  /// Connection settings for live sources (e.g. Tally address and company). Never secrets: those stay in env.
+  settings             Json?
   lastSuccessfulSyncAt DateTime?
   createdAt            DateTime       @default(now())
   tenant               Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)

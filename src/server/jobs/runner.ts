@@ -7,6 +7,9 @@ import { commitImport, ImportError } from "@/server/ingest/pipeline";
 import { sendCampaign } from "@/server/campaigns/service";
 import { WorkflowError } from "@/server/campaigns/workflow";
 import { MlUnavailableError, runMlWorker } from "@/server/ml/worker";
+import { syncTally } from "@/server/adapters/tally/sync";
+import { syncAmazon } from "@/server/adapters/marketplace/amazon-sync";
+import { AmazonApiError } from "@/server/adapters/marketplace/sp-api";
 import { claimJob, completeJob, enqueueJob, failJob, requeueStale, setProgress, type JobType } from "@/server/jobs/queue";
 
 /**
@@ -30,8 +33,17 @@ const STEP_LABELS: Record<string, string> = {
   reconcile: "Reconciling totals",
   findings: "Looking for problems and opportunities",
   ml: "Training and testing the prediction models",
-  campaign: "Sending the approved campaign"
+  campaign: "Sending the approved campaign",
+  tally_connect: "Connecting to TallyPrime",
+  tally_masters: "Reading masters from Tally",
+  amazon_groups: "Listing Amazon payouts"
 };
+const stepLabel = (step: string) =>
+  step.startsWith("tally_daybook:")
+    ? `Reading Tally's Day Book for ${step.split(":")[1]}`
+    : step.startsWith("amazon_events:")
+      ? `Reading Amazon payout ${step.split(":")[1]}`
+      : (STEP_LABELS[step] ?? step);
 
 type Handler = (job: Job, progress: (step: string) => void) => Promise<Prisma.InputJsonValue>;
 
@@ -65,18 +77,27 @@ const HANDLERS: Record<JobType, Handler> = {
   "ml.run": async (job, progress) => {
     progress("ml");
     return (await runMlWorker(job.tenantId)) as Prisma.InputJsonValue;
+  },
+  "tally.sync": async (job, progress) => {
+    const { dataSourceId, userId } = job.payload as { dataSourceId: string; userId?: string };
+    const result = await syncTally(forTenant(job.tenantId), job.tenantId, dataSourceId, { userId, onStep: progress });
+    return { ...result, ...(result.committed ? await afterDataChange(job.tenantId, progress) : {}) } as Prisma.InputJsonValue;
+  },
+  "amazon.sync": async (job, progress) => {
+    const { from, to, userId } = job.payload as { from: string; to: string; userId?: string };
+    return (await syncAmazon(forTenant(job.tenantId), job.tenantId, { from, to, userId, onStep: progress })) as Prisma.InputJsonValue;
   }
 };
 
 /** Data errors (failed validation, reconciliation) and a missing ML install will fail again; anything else may be transient. */
-const isRetryable = (error: unknown) => !(error instanceof ImportError || error instanceof MlUnavailableError || error instanceof WorkflowError);
+const isRetryable = (error: unknown) => !(error instanceof ImportError || error instanceof MlUnavailableError || error instanceof WorkflowError || error instanceof AmazonApiError);
 
 export async function runJob(job: Job): Promise<void> {
   const handler = HANDLERS[job.type as JobType];
   if (!handler) return failJob(job, `Unknown job type ${job.type}`, false);
   let last = "";
   const progress = (step: string) => {
-    const label = STEP_LABELS[step] ?? step;
+    const label = stepLabel(step);
     if (label === last) return;
     last = label;
     void setProgress(job.id, label).catch(() => undefined);

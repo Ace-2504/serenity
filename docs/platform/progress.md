@@ -734,3 +734,58 @@ playwright          17 passed (new: pharmacy demo, expiry page, campaign without
 * Expiry projections ignore seasonality; refills are modelled as random monthly purchases, not prescriptions.
 * No adapter for pharmacy ERPs (e.g. Marg); pharmacy data comes in through the template or Tally.
 * The core gained generic batch support rather than "zero core changes"; see 08-domain-packs.md §3.1.
+
+---
+
+## M10b — Live connectors: TallyPrime sync, BUSY/spreadsheet registers, Amazon SP-API (built; not verified against the real systems)
+
+**What was built** (details: [07-integration-research.md](07-integration-research.md), setup: [09-operations.md §2a](09-operations.md))
+* **TallyPrime live sync:**
+  * test the connection (lists open companies), save the address and company, sync now or once a day from the worker;
+  * a sync reads masters and the Day Book month by month over Tally's XML server, from the books' start date (or a chosen date) to today;
+  * the answers go through the same converter as uploaded Tally XML, and the result waits for review unless "save without review" is on;
+  * Tally's `LINEERROR` replies are shown;
+  * only local or private addresses are accepted; link-local (cloud metadata) addresses are refused;
+  * Docker containers reach a Tally on the same computer via `host.docker.internal`.
+* **BUSY or any spreadsheet registers:**
+  * sales, purchase and return registers (Excel or CSV) uploaded together for one period;
+  * a suggested column mapping you confirm, remembered per header layout;
+  * bill details filled down to item lines;
+  * GST from several column styles;
+  * the stated taxable value is kept to the paisa.
+  * It replaces the planned BUSY-specific adapter, because BUSY's export layout could not be obtained.
+* **Amazon Selling Partner API (Finances v0):**
+  * login with a refresh token, paging, rate limiting and retries;
+  * closed payouts are converted through the settlement-report converter, so each must add up to its deposit;
+  * event types the connector does not read are reported, and their money fails the deposit check rather than disappearing;
+  * credentials only in environment variables, never in errors.
+* **Plumbing:** migration `data_source_settings`; job types `tally.sync` and `amazon.sync`; three new cards on the Imports page, each labelled "not yet tested against a real …".
+
+**Checked in the browser** (production build, simulated Tally on port 9000):
+* Test connection reported "1 company open", and Save then Sync finished.
+* The sync staged as validated with 0 errors (the warnings are the fixture's planted cases).
+* Two register files were mapped correctly without changes and staged with 0 errors.
+* The Amazon card explains which settings are missing when none are set.
+* No horizontal scroll at 390 px.
+* Screenshot: `screenshots/m10b-register-mapping.png`.
+
+**Tests (actual results)**
+```
+npm test            22 files, 176 tests passed (new: Tally connector 4, SP-API 5, registers 4)
+npm run test:int    17 files, 129 tests passed (332 s; new: Tally live 6, Amazon 2, registers 2)
+pytest (ml/)        16 passed
+playwright          17 passed (fresh database)
+```
+* **Tally:**
+  * reads the books' start date and requests each month with the right company and dates;
+  * the live result equals a file upload of the same exports;
+  * an unchanged Tally gives "no change";
+  * a wrong company lists the open ones, and a stopped Tally is explained;
+  * the daily schedule queues only due sources, once.
+* **Amazon:** payouts reconcile to deposits; an unknown event list fails the deposit check; paging, one login and a retry after 429; the secret is never echoed; staging, commit and "no change" on re-read.
+* **Registers:** mapping suggestions; two registers make one bundle with no errors; missing required columns are explained; exact taxable values at any quantity; mapping remembered through the real API.
+
+**Known limitations, and what verifying them needs from you**
+* **Tally:** run once against a real TallyPrime (even Educational mode) and compare with Tally's Sales Register. The masters request and `EXPLODEFLAG` follow community practice. There is no AlterID incremental sync yet: every sync re-reads the period.
+* **BUSY:** one real export of each register would confirm the suggested mappings. Registers carry no opening stock or receipts and payments.
+* **Amazon:** needs a registered SP-API app and seller authorisation. India's fee-GST event names are assumed to match the settlement report's naming; any mismatch shows up as a deposit mismatch, not silent loss.
