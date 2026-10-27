@@ -41,3 +41,30 @@ export async function bulkInsert(
     await tx.$executeRawUnsafe(sql, JSON.stringify(chunk, (_key, value) => (value instanceof Prisma.Decimal ? value.toFixed() : value)));
   }
 }
+
+/**
+ * Bulk UPDATE ... FROM jsonb_to_recordset, matching rows by id within one tenant.
+ * Same safety rules as bulkInsert: constant identifiers, values only via the JSON parameter.
+ */
+export async function bulkUpdate(
+  tx: RawExecutor,
+  tenantId: string,
+  table: string,
+  columns: Record<string, string>,
+  rows: Record<string, unknown>[]
+): Promise<void> {
+  if (rows.length === 0) return;
+  const names = Object.keys(columns);
+  const typeList = ["id text", ...names.map((name) => `"${name}" ${columns[name]}`)].join(", ");
+  const assignments = names.map((name) => `"${name}" = r."${name}"`).join(", ");
+  const sql = `UPDATE "${table}" AS t SET ${assignments} FROM jsonb_to_recordset($1::jsonb) AS r(${typeList}) WHERE t."id" = r."id" AND t."tenantId" = $2`;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    for (const row of chunk) {
+      for (const name of ["id", ...names]) {
+        if (row[name] === undefined) throw new Error(`bulkUpdate on ${table}: row is missing "${name}"`);
+      }
+    }
+    await tx.$executeRawUnsafe(sql, JSON.stringify(chunk, (_key, value) => (value instanceof Prisma.Decimal ? value.toFixed() : value)), tenantId);
+  }
+}

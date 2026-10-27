@@ -189,3 +189,57 @@ npm run lint / tsc / build   clean (1 pre-existing lint warning)
   * I fixed only the shared top-nav wrapping, which affected every page.
 
 **Next: M4 — Tally XML file adapter**, or **M5 — profitability & inventory analytics** if a visible dashboard matters more right now.
+
+## M5 — Profit & stock analytics (2026-10-27)
+
+![Profitability dashboard](screenshots/profitability.png)
+![Inventory dashboard](screenshots/inventory.png)
+
+**Implemented**
+* **Stock ledger** (`src/server/ledger/stock.ts`), rebuilt inside every import commit, so analytics never see half an import:
+  * Weighted-average cost in the source's posting order (`Voucher.postingSeq`, excluded from the change hash).
+  * Returns come back at the original line's cost; purchase returns leave at invoice value.
+  * Unknown opening value means unknown cost until the stock is used up.
+  * Negative stock (Tally allows it) is costed at the last known unit cost and counted.
+  * Writes `StockMovement` and each sales line's cost through bulk SQL.
+* **Stock check:** after rebuilding, the ledger is compared with the source's closing stock, item by item, and the result is stored on the import. On the demo it matches exactly.
+* **Analytics** (`src/server/analytics/`):
+  * profitability by product / channel / channel × product / group / month: gross sales → discounts → returns → net sales → COGS → gross profit → channel charges → contribution, with cost coverage;
+  * stock positions, inventory value, average inventory over month-end points, turnover and days of inventory (cost-based; `partial` / `unavailable` states);
+  * FIFO-layer stock ageing;
+  * slow / non-moving stock from domain-pack thresholds;
+  * stockout days.
+* **Screens**:
+  * `/bi/profitability`: filters, KPI tiles with "how?" links, profit bridge, channel dumbbell, monthly trends, sortable product table.
+  * `/bi/inventory`: tiles, ageing, value by group, slow / non-moving items, stockouts.
+  * `/bi/products/[id]`: drill-down to the source transactions.
+  * `/bi/metrics`: definitions from the metric registry, which a test keeps in sync with the KPI dictionary.
+* **Charts:**
+  * The palette was validated with the dataviz checker; the brand green failed the chroma floor, so charts use the validated reference blue/orange.
+  * Hover and keyboard tooltips, legends for 2+ series, a table view for the bridge, and no dual axes.
+
+**Tests (actual results)**
+```
+npm test            9 files, 87 tests passed
+npm run test:int    4 files, 38 tests passed (~77 s)
+lint / tsc / build  clean (1 pre-existing lint warning)
+```
+* Against the generator's ground truth, on a two-year demo with every channel and planted problem:
+  * net sales, COGS and channel charges match exactly for every channel × product (checked both ways);
+  * net sales, COGS, returns and discounts match for every financial year;
+  * the ledger equals the source closing stock for every item.
+* Also tested: partial cost coverage reported instead of zero cost; every unit on hand aged exactly once; planted slow movers and stockouts detected; turnover formula checked and `unavailable` without sales; Indian financial-year periods.
+* Browser (production build, full two-year demo):
+  * pages render in 0.3–2.8 s;
+  * the product drill-down works and tooltips show on hover;
+  * no horizontal scroll at 390 px.
+
+**Bugs found and fixed**
+* Passing formatter functions from server pages into client charts crashed the page (React Server Components forbid it). Charts now take a format name.
+* The business switcher and a dumbbell label overflowed on phones.
+
+**Known limitations**
+* Reloading the full demo through the UI took 277 s in one run (deleting the previous demo plus generating, staging and committing), close to the 300 s route limit. The background job queue in M7 removes this.
+* The ledger is rebuilt for the whole business on each import (≈10 s for the full demo); incremental rebuilds can come later.
+* Analytics combine all of a business's data sources. Two sources reporting the same sale (e.g. storefront and Tally) would double count, so source de-duplication is needed before mixing sources.
+* The app has no dark mode; charts are validated for its light surface only.

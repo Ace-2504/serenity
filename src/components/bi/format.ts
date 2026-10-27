@@ -5,6 +5,27 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "s
 
 export const formatInr = (value: string | number) => inr.format(Number(value));
 export const formatCount = (value: number) => count.format(value);
+
+/** Indian compact money: ₹1.24 Cr, ₹34.5 L, ₹12.3K. */
+export function formatInrCompact(value: number | string): string {
+  const v = Number(value);
+  const sign = v < 0 ? "−" : "";
+  const a = Math.abs(v);
+  if (a >= 1e7) return `${sign}₹${(a / 1e7).toFixed(2)} Cr`;
+  if (a >= 1e5) return `${sign}₹${(a / 1e5).toFixed(1)} L`;
+  if (a >= 1e3) return `${sign}₹${(a / 1e3).toFixed(1)}K`;
+  return `${sign}₹${a.toFixed(0)}`;
+}
+
+export const formatPct = (value: number | null) => (value === null ? "—" : `${value.toFixed(1)}%`);
+
+/** Named formats, so server pages can tell client charts how to format without passing functions. */
+export type FormatKind = "inr" | "pct" | "pct0";
+export function formatAs(kind: FormatKind, value: number): string {
+  if (kind === "inr") return formatInrCompact(value);
+  if (kind === "pct0") return `${value.toFixed(0)}%`;
+  return `${value.toFixed(1)}%`;
+}
 export const plural = (value: number, one: string, many: string) => `${count.format(value)} ${value === 1 ? one : many}`;
 export const formatDate = (value: Date | string | null) => (value ? dateFmt.format(new Date(value)) : "—");
 export const formatDateTime = (value: Date | string | null) => (value ? dateTimeFmt.format(new Date(value)) : "—");

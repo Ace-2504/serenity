@@ -69,6 +69,8 @@ export type LineDraft = {
 
 export type VoucherDraft = {
   key: string;
+  /** Index of the voucher's first row in the file: the source's posting order. */
+  seq: number;
   type: VoucherKind;
   number: string;
   date: string;
@@ -414,7 +416,7 @@ function parseVouchers(rows: Row[], log: IssueLog): VoucherDraft[] {
     const key = `${type}|${number}`;
     let voucher = byKey.get(key);
     if (!voucher) {
-      voucher = { key, type, number, ...header, lines: [] };
+      voucher = { key, seq: byKey.size, type, number, ...header, lines: [] };
       byKey.set(key, voucher);
     } else {
       const changed = (Object.keys(header) as (keyof typeof header)[]).filter((field) => voucher![field] !== header[field]);
@@ -552,11 +554,11 @@ function parseControlTotals(rows: Row[], log: IssueLog): ControlTotalDraft[] {
   return out;
 }
 
-/** Stable content hash of a draft, ignoring where in the file it came from. */
+/** Stable content hash of a draft, ignoring where in the file it came from (row refs, posting position). */
 export function contentHash(draft: unknown): string {
   return sha256(
     JSON.stringify(draft, (key, value) => {
-      if (key === "rowRef") return undefined;
+      if (key === "rowRef" || key === "seq") return undefined;
       if (value instanceof D) return value.toFixed();
       return value;
     })

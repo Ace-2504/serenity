@@ -621,7 +621,10 @@ model Voucher {
   tenantId            String
   dataSourceId        String
   sourceKey           String
-  sourceVersion       Int              @default(1)
+  sourceVersion     Int           @default(1)
+  /// Position in the source's posting order (row order of the file); orders same-day vouchers
+  /// for costing. Not part of the content hash, so inserting a voucher does not "change" others.
+  postingSeq        Int?
   sourceRecordId      String
   type                VoucherType
   number              String

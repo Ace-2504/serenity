@@ -4,6 +4,7 @@ import { getDomainPack } from "@/domain/packs";
 import { bulkInsert } from "@/server/db/bulk";
 import type { TenantDb } from "@/server/db/tenant";
 import { IssueLog, type Issue } from "@/server/ingest/issues";
+import { rebuildStockLedger, type LedgerSummary } from "@/server/ledger/stock";
 import { contentHash, parseBundle, type ParsedBundle, type UploadedFile } from "@/server/ingest/parse";
 import { validateBundle, type ControlReconciliation, type KnownRecords } from "@/server/ingest/validate";
 
@@ -36,7 +37,11 @@ export type ImportSummary = {
   entities: Record<string, EntityCounts>;
   issues: { errors: number; warnings: number; byCode: ReturnType<IssueLog["countsByCode"]> };
   controlTotals: ControlReconciliation;
+  /** Set on commit: the rebuilt stock ledger and how it compares with the source's closing stock. */
+  ledger?: LedgerSummary & { stockCheck: StockCheck };
 };
+
+export type StockCheck = { items: number; qtyMismatches: number; valueMismatches: number; valueUnknownInLedger: number; examples: string[] };
 
 export type StageResult = { batchId: string; status: "validated" | "rejected" | "duplicate"; summary: ImportSummary };
 
@@ -145,6 +150,10 @@ export async function commitImport(db: TenantDb, tenantId: string, batchId: stri
       }
 
       await writeBundle(tx, tenantId, batch.dataSourceId, batch.id, bundle, plan, options.onStep ?? (() => undefined));
+
+      options.onStep?.("ledger");
+      const ledger = await rebuildStockLedger(tx, tenantId);
+      summary.ledger = { ...ledger, stockCheck: await checkStockAgainstSource(tx, tenantId, batch.id) };
 
       // Reconcile what is now in the database against the source's control totals, inside the
       // transaction: a mismatch rolls everything back, so "committed" always means "reconciled".
@@ -505,6 +514,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         sourceVersion: (plan.current.get(`voucher|${v.key}`)?.version ?? 0) + 1,
         type: v.type,
         number: v.number,
+        postingSeq: v.seq,
         date: new Date(v.date),
         partyId: partyIds.get(v.partyCode)!,
         dueDate: v.dueDate ? new Date(v.dueDate) : null,
@@ -590,6 +600,7 @@ async function writeBundle(tx: TenantTx, tenantId: string, dataSourceId: string,
         orderRef: null,
         partyId: null,
         originalVoucherId: null,
+        postingSeq: null,
         sourceVersion: 1,
         discountAmount: zero,
         taxAmount: zero,
@@ -729,6 +740,7 @@ const COLUMNS = {
     sourceRecordId: "text",
     type: '"VoucherType"',
     number: "text",
+    postingSeq: "int",
     date: "date",
     partyId: "text",
     dueDate: "date",
@@ -821,6 +833,40 @@ async function reconcileDatabase(tx: TenantTx, tenantId: string, dataSourceId: s
     out.push({ metric: control.metric, expected: control.value.toFixed(2), inDatabase: inDatabase.toFixed(2), ok: inDatabase.sub(control.value).abs().lte("0.01") });
   }
   return out;
+}
+
+/**
+ * Compares the rebuilt ledger with the closing stock the source reported. Differences are
+ * reported, not fatal: a source may value stock differently (e.g. Tally FIFO vs our WAC).
+ */
+async function checkStockAgainstSource(tx: TenantTx, tenantId: string, batchId: string): Promise<StockCheck> {
+  const rows = await tx.$queryRaw<{ code: string; sourceQty: Decimal; sourceValue: Decimal | null; ledgerQty: Decimal | null; ledgerValue: Decimal | null }[]>`
+    SELECT i."sourceKey" AS code, s."qty" AS "sourceQty", s."value" AS "sourceValue", m."runningQty" AS "ledgerQty", m."runningValue" AS "ledgerValue"
+    FROM "StockSnapshot" s
+    JOIN "Item" i ON i."tenantId" = s."tenantId" AND i."id" = s."itemId"
+    LEFT JOIN LATERAL (
+      SELECT "runningQty", "runningValue" FROM "StockMovement" m
+      WHERE m."tenantId" = s."tenantId" AND m."itemId" = s."itemId" AND m."date" <= s."asOf"
+      ORDER BY m."seq" DESC LIMIT 1
+    ) m ON true
+    WHERE s."tenantId" = ${tenantId} AND s."importBatchId" = ${batchId}`;
+  const check: StockCheck = { items: rows.length, qtyMismatches: 0, valueMismatches: 0, valueUnknownInLedger: 0, examples: [] };
+  for (const row of rows) {
+    const ledgerQty = new D(row.ledgerQty ?? 0);
+    if (!ledgerQty.eq(row.sourceQty)) {
+      check.qtyMismatches += 1;
+      if (check.examples.length < 5) check.examples.push(`${row.code}: qty ${ledgerQty.toFixed()} vs source ${new D(row.sourceQty).toFixed()}`);
+      continue;
+    }
+    if (row.sourceValue === null) continue;
+    if (row.ledgerValue === null) {
+      check.valueUnknownInLedger += 1;
+    } else if (new D(row.ledgerValue).sub(row.sourceValue).abs().gt(1)) {
+      check.valueMismatches += 1;
+      if (check.examples.length < 5) check.examples.push(`${row.code}: value ${new D(row.ledgerValue).toFixed(2)} vs source ${new D(row.sourceValue).toFixed(2)}`);
+    }
+  }
+  return check;
 }
 
 async function createChunked<T>(rows: T[], write: (chunk: T[]) => Promise<unknown>) {

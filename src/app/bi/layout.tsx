@@ -18,20 +18,24 @@ export default async function BiLayout({ children }: { children: React.ReactNode
         </div>
       )}
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-mist bg-gradient-to-br from-canvas via-[#eff7f8] to-paper p-5 shadow-panel">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-widest text-graphite">Business intelligence</p>
           <h1 className="mt-1 font-display text-3xl md:text-4xl">{tenant?.name ?? "Get started"}</h1>
         </div>
-        <nav aria-label="Business intelligence" className="flex flex-wrap items-center gap-2">
+        <nav aria-label="Business intelligence" className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {tenant && (
             <BusinessSwitcher active={tenant.id} options={resolved.memberships.map((m) => ({ tenantId: m.tenantId, name: m.name, isDemo: m.isDemo }))} />
           )}
-          <Link href="/bi/imports" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold hover:bg-forest hover:text-canvas">
-            Imports
-          </Link>
-          <Link href="/bi/template" className="rounded-full border border-mist px-4 py-2 text-sm font-semibold hover:border-ink hover:bg-paper">
-            Import template
-          </Link>
+          {[
+            { href: "/bi/profitability" as const, label: "Profitability" },
+            { href: "/bi/inventory" as const, label: "Inventory" },
+            { href: "/bi/imports" as const, label: "Imports" },
+            { href: "/bi/metrics" as const, label: "Definitions" }
+          ].map((link) => (
+            <Link key={link.href} href={link.href} className="rounded-full border border-mist px-4 py-2 text-sm font-semibold hover:border-ink hover:bg-paper">
+              {link.label}
+            </Link>
+          ))}
         </nav>
       </header>
       {children}

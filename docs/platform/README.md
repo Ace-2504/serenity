@@ -15,4 +15,4 @@ Planning set for transforming the Serenity storefront into an operations-intelli
 | [08-domain-packs](08-domain-packs.md) | Core vs per-trade packs; stationery → pharmacy plan; where automation, determinism and AI live |
 | [progress](progress.md) | Milestone log: what shipped, files, tests run, limitations |
 
-Status: **M0–M3 complete** (plan, foundation, demo data, import pipeline with UI). Next: M4 Tally XML adapter or M5 analytics. Order: stationery first, pharmacy as the second domain pack (M12).
+Status: **M0–M3 and M5 complete** (plan, foundation, demo data, import pipeline, profit & stock analytics). Next: M6 customers & working capital. Order: stationery first, pharmacy as the second domain pack (M12).

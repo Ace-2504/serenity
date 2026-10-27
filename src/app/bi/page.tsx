@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// The dashboard arrives with the analytics milestone; until then imports are the entry point.
+// The overview with recommendations arrives with the findings milestone (M7).
 export default function BiHome() {
-  redirect("/bi/imports");
+  redirect("/bi/profitability");
 }
