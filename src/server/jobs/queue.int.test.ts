@@ -35,6 +35,16 @@ describe("Postgres job queue", () => {
     await prisma.job.deleteMany({ where: { tenantId } });
   });
 
+  it("queues a fresh sync behind a running one, so a change made mid-sync is not lost", async () => {
+    const first = await enqueueJob(tenantId, "website.sync", {}, { dedupeKey: "website.sync:s1", queuedOnly: true });
+    expect((await claimJob("w"))!.id).toBe(first.id);
+    const second = await enqueueJob(tenantId, "website.sync", {}, { dedupeKey: "website.sync:s1", queuedOnly: true });
+    expect(second.id).not.toBe(first.id);
+    const third = await enqueueJob(tenantId, "website.sync", {}, { dedupeKey: "website.sync:s1", queuedOnly: true });
+    expect(third.id).toBe(second.id);
+    await prisma.job.deleteMany({ where: { tenantId } });
+  });
+
   it("retries transient failures with backoff, then gives up", async () => {
     await enqueueJob(tenantId, "findings.refresh", {});
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {

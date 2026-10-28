@@ -12,11 +12,20 @@ export const STALE_AFTER_MINUTES = 15;
 
 export type JobType = "import.commit" | "demo.load" | "findings.refresh" | "ml.run" | "campaign.send" | "tally.sync" | "amazon.sync" | "website.sync";
 
-/** Enqueues a job, or returns the one already queued or running for the same key (e.g. the same import). */
-export async function enqueueJob(tenantId: string, type: JobType, payload: Prisma.InputJsonObject, options: { createdBy?: string; dedupeKey?: string } = {}): Promise<Job> {
+/**
+ * Enqueues a job, or returns the one already queued or running for the same key (e.g. the same
+ * import). With queuedOnly, a running job does not count: use it when the job reads data that may
+ * have changed since it started (a sync), so the change is picked up by the next run.
+ */
+export async function enqueueJob(
+  tenantId: string,
+  type: JobType,
+  payload: Prisma.InputJsonObject,
+  options: { createdBy?: string; dedupeKey?: string; queuedOnly?: boolean } = {}
+): Promise<Job> {
   if (options.dedupeKey) {
     const existing = await prisma.job.findFirst({
-      where: { tenantId, type, status: { in: ["queued", "running"] }, payload: { path: ["dedupeKey"], equals: options.dedupeKey } }
+      where: { tenantId, type, status: { in: options.queuedOnly ? ["queued"] : ["queued", "running"] }, payload: { path: ["dedupeKey"], equals: options.dedupeKey } }
     });
     if (existing) return existing;
   }

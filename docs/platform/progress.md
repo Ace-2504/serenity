@@ -864,6 +864,7 @@ playwright          20 passed (fresh database; new e2e/visitor.spec.ts: product 
   * It enters the books as a purchase and an amount owed, or as paid.
   * A bill can be removed only if its stock has not been sold since.
 * **Order fulfilment.** The order page moves an order through packed, shipped and delivered, or cancels or takes it back. Cancelling or returning puts the goods back in stock; the shop never did before. Cash on delivery can be marked collected once shipped, and the books then show it received on that day.
+* **Fix: a change made during a sync could wait for the next one.** A website change queued while a sync was already running was merged into that running sync, which had read the website before the change. CI caught it: an order placed just after a purchase reached the CRM only at the next change. Website changes now queue a fresh sync behind a running one.
 * **Fix: adapter notes were lost on save.** When an import was saved, its summary was rebuilt and the adapter's note was dropped. For Tally, Amazon and registers that note says the data is not verified against the real system, so the warning disappeared once data was saved. It is now kept.
 * **CRM customer directory.** Search by name, email or phone. It includes shop accounts that have not bought yet, and shows each customer's email consent.
 * **Dashboard.** Shows the books' open decisions, CRM customers, customers reachable by email and the amount owed to suppliers.
@@ -877,7 +878,7 @@ playwright          20 passed (fresh database; new e2e/visitor.spec.ts: product 
 **Tests (actual results)**
 ```
 npm test            23 files, 181 tests passed (new: website conversion 3, concentration minimum 1)
-npm run test:int    18 files, 132 tests passed (new: website feed 3). The schema check caught two missing
+npm run test:int    18 files, 133 tests passed (new: website feed 3, sync queued behind a running one 1). The schema check caught two missing
                     indexes on purchase lines; they were added and it passed on the rerun.
 pytest (ml/)        not rerun: no Python changes
 playwright          21 passed (fresh database; new e2e/shop-erp.spec.ts: one console; link the website and
