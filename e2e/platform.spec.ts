@@ -35,27 +35,27 @@ test("the owner signs in and loads the quick demo", async () => {
   await page.fill('input[name="password"]', PASSWORD);
   await Promise.all([page.waitForURL(/\/admin$/), page.click('button:has-text("Sign in")')]);
 
-  await page.goto("/bi/imports");
+  await page.goto("/admin/erp/imports");
   await page.click('button:has-text("Quick demo (6 months)")');
   // The demo loads as a background job; the page reloads into the new business when done.
   await expect(page.locator('button:has-text("Loading…")')).toHaveCount(0, { timeout: 8 * 60_000 });
-  await page.goto("/bi");
+  await page.goto("/admin/erp");
   await expect(page.getByText("Demo data.", { exact: false }).first()).toBeVisible();
   await expect(page.locator("h1")).toContainText("DEMO");
 });
 
 const REPORTS = [
-  ["/bi", "Overview"],
-  ["/bi/profitability", "Profitability"],
-  ["/bi/channels", "Channels"],
-  ["/bi/inventory", "Inventory"],
-  ["/bi/customers", "Customers"],
-  ["/bi/cash", "Cash"],
-  ["/bi/predictions", "Predictions"],
-  ["/bi/campaigns", "Campaigns"],
-  ["/bi/assistant", "Ask"],
-  ["/bi/metrics", "Definitions"],
-  ["/bi/system", "System"]
+  ["/admin/erp", "Overview"],
+  ["/admin/erp/profitability", "Profitability"],
+  ["/admin/erp/channels", "Channels"],
+  ["/admin/erp/inventory", "Inventory"],
+  ["/admin/crm/customers", "Customers"],
+  ["/admin/erp/cash", "Cash"],
+  ["/admin/erp/predictions", "Predictions"],
+  ["/admin/crm/campaigns", "Campaigns"],
+  ["/admin/erp/assistant", "Ask"],
+  ["/admin/erp/metrics", "Definitions"],
+  ["/admin/erp/system", "System"]
 ] as const;
 
 for (const [path, name] of REPORTS) {
@@ -71,13 +71,13 @@ for (const [path, name] of REPORTS) {
 }
 
 test("a campaign reaches customers only after every approval, and stays in the local outbox", async () => {
-  await page.goto("/bi/campaigns");
+  await page.goto("/admin/crm/campaigns");
   await page.fill('input[placeholder^="Win back"]', "E2E win-back");
   // Champions: the six-month demo is too short for many customers to be lapsing.
   await page.getByLabel("Who", { exact: false }).first().selectOption("segment");
   await page.locator("label", { hasText: /^Segment/ }).locator("select").selectOption("champion");
   await page.fill('input[placeholder^="Get an order"]', "Thank our best customers with an early look at the new range");
-  await Promise.all([page.waitForURL(/\/bi\/campaigns\/[0-9a-f-]{36}$/), page.click('button:has-text("Create draft")')]);
+  await Promise.all([page.waitForURL(/\/admin\/crm\/campaigns\/[0-9a-f-]{36}$/), page.click('button:has-text("Create draft")')]);
   await expect(page.getByText("will be contacted")).toBeVisible();
   await expect(page.locator('button:has-text("Send now")')).toHaveCount(0);
 
@@ -105,32 +105,32 @@ test("a campaign reaches customers only after every approval, and stays in the l
 });
 
 test("the assistant answers from the matching report when no model server runs", async () => {
-  await page.goto("/bi/assistant");
+  await page.goto("/admin/erp/assistant");
   await page.click('button:has-text("Who owes me money?")');
   await expect(page.getByText("Answered from the report itself")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText(/Customers owe ₹/)).toBeVisible();
 });
 
 test("the pharmacy demo shows stock by expiry and keeps offers out of its campaigns", async () => {
-  await page.goto("/bi/imports");
+  await page.goto("/admin/erp/imports");
   await page.click('button:has-text("Pharmacy demo (6 months)")');
   await expect(page.locator('button:has-text("Loading…")')).toHaveCount(0, { timeout: 8 * 60_000 });
-  await page.goto("/bi");
+  await page.goto("/admin/erp");
   await expect(page.locator("h1")).toContainText("Sanjeevani");
 
-  await page.goto("/bi/inventory");
+  await page.goto("/admin/erp/inventory");
   await expect(page.getByText("When does the stock expire?")).toBeVisible();
   await expect(page.getByText("Expired stock", { exact: true })).toBeVisible();
 
-  await page.goto("/bi?all=1");
+  await page.goto("/admin/erp?all=1");
   await expect(page.getByText(/of expired stock is still on hand/).first()).toBeVisible();
 
-  await page.goto("/bi/campaigns");
+  await page.goto("/admin/crm/campaigns");
   await page.fill('input[placeholder^="Win back"]', "E2E refill reminder");
   await page.getByLabel("Who", { exact: false }).first().selectOption("segment");
   await page.locator("label", { hasText: /^Segment/ }).locator("select").selectOption("champion");
   await page.fill('input[placeholder^="Get an order"]', "Remind regular patients that their medicines are in stock");
-  await Promise.all([page.waitForURL(/\/bi\/campaigns\/[0-9a-f-]{36}$/), page.click('button:has-text("Create draft")')]);
+  await Promise.all([page.waitForURL(/\/admin\/crm\/campaigns\/[0-9a-f-]{36}$/), page.click('button:has-text("Create draft")')]);
   await expect(page.getByText("No offers in this trade", { exact: false })).toBeVisible();
   await expect(page.locator('input[inputmode="decimal"]')).toHaveCount(0);
 });

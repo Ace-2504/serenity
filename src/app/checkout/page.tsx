@@ -325,7 +325,7 @@ export default function CheckoutPage() {
         <section className="rounded-2xl border border-mist bg-gradient-to-br from-canvas to-mist-light/60 p-6 shadow-sm">
           <h2 className="text-2xl font-semibold">Order Placed</h2>
           <p className="mt-2 text-sm text-graphite">Your order number is {placedOrderNumber}.</p>
-          <Link href="/shop" className="mt-4 inline-block rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-forest">
+          <Link href="/" className="mt-4 inline-block rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-forest">
             Continue Shopping
           </Link>
         </section>

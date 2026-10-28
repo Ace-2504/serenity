@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createInventoryItem, InventoryValidationError, normalizeStatus } from "@/lib/admin-inventory";
 import { requireRequestRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { queueWebsiteSync } from "@/server/adapters/website/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (created.length > 0) await queueWebsiteSync("products added");
   return NextResponse.json({
     totalRows: rows.length,
     createdCount: created.length,

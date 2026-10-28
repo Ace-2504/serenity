@@ -17,10 +17,18 @@ export async function requireBi(request: NextRequest, roles?: MembershipRole[]):
   return resolved.context;
 }
 
-/** For actions that create businesses: any signed-in user may, and becomes the new business's owner. */
+/** Any signed-in user, whether or not they belong to a business yet. */
 export async function requireSignedIn(request: NextRequest): Promise<NonNullable<Resolved> | NextResponse> {
   const resolved = await getBiContextFromRequest(request);
   if (!resolved) return jsonError(401, "UNAUTHENTICATED", "Sign in first");
+  return resolved;
+}
+
+/** For actions that create businesses: only the shop's owner, who becomes the new business's owner. */
+export async function requireShopOwner(request: NextRequest): Promise<NonNullable<Resolved> | NextResponse> {
+  const resolved = await requireSignedIn(request);
+  if (resolved instanceof NextResponse) return resolved;
+  if (!resolved.sessionRoles.includes("owner_admin")) return jsonError(403, "FORBIDDEN", "Only the shop's owner can create businesses");
   return resolved;
 }
 

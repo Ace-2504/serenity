@@ -4,6 +4,7 @@ import { requireRequestAuth } from "@/lib/auth";
 import { calculateCheckoutFromCart } from "@/lib/checkout";
 import { fetchRazorpayPayment, isRazorpayEnabled, verifyRazorpayPaymentSignature } from "@/lib/payment-provider";
 import { prisma } from "@/lib/prisma";
+import { queueWebsiteSync } from "@/server/adapters/website/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -226,6 +227,8 @@ export async function POST(request: NextRequest) {
     await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
     return created;
   });
+  // The order goes into the ERP's books (when the website is linked to a business).
+  await queueWebsiteSync("order placed");
 
   return NextResponse.json({
     orderId: order.id,

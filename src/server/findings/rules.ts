@@ -225,7 +225,7 @@ function collectionsSlowing(ctx: RuleContext): FindingDraft[] {
 function customerConcentration(ctx: RuleContext): FindingDraft[] {
   const c = ctx.concentration;
   const top = c.top[0];
-  if (!top || ((c.top5Share ?? 0) < C.concentrationTop5 && top.share < C.concentrationSingle)) return [];
+  if (!top || c.buyers < C.concentrationMinBuyers || ((c.top5Share ?? 0) < C.concentrationTop5 && top.share < C.concentrationSingle)) return [];
   const name = ctx.parties.get(top.partyId)?.name ?? "—";
   return [
     {

@@ -23,7 +23,7 @@ What starts:
 | `worker` | Runs queued work: import commits, demo loads, findings, model training (Python, in the same image) and campaign sends. |
 | `ollama` | Optional (`--profile llm`): a local model server for the assistant. |
 
-Open `http://localhost:3000/login`, sign in with `ADMIN_EMAIL`, and you land on **Business intelligence** (`/bi`). Anyone who can reach the app can also create their own account at `/signup`; set `SIGNUPS_OPEN=0` to close sign-up on a private install. Load a demo business from the Imports page to look around; demo data is labelled everywhere and never mixed with real data.
+Open `http://localhost:3000/admin/login` and sign in with `ADMIN_EMAIL`: you land on the owner console, which holds the shop's operations, the ERP and the CRM. To feed the ERP and CRM from the shop, create your business under **ERP → Data & connections** and press **Link this website to this business**. Demo businesses can be loaded on the same page to look around; demo data is labelled everywhere and never mixed with real data.
 
 **Health:** `GET /api/health` answers `200` with the database round-trip time, or `503` when the database is unreachable. Docker uses it as the app's health check.
 
@@ -68,7 +68,7 @@ None of these connectors has yet been tested against a real TallyPrime, real BUS
 
 | Layer | What it does | Where |
 |---|---|---|
-| Accounts | Anyone can sign up (unless `SIGNUPS_OPEN=0`) and create businesses, of which they are the owner. Nobody sees a business they are not a member of. | `src/app/api/auth/signup` |
+| Console access | Shop staff (owner, catalogue manager, order operations) and members of a business sign in at `/admin/login`. Only the shop's owner can create businesses and link the website. Shop customers cannot enter the console. | `src/app/admin/(console)/layout.tsx` |
 | Roles | Owner (`owner_admin`): everything, including approving recommendations and campaigns and deleting the business. Accountant: imports, data quality, system page. Analyst: read-only. | `src/server/bi/context.ts` |
 | Application scoping | Every query on a business's tables goes through `forTenant()`, which adds the business to every read and write and refuses writes for another business. | `src/server/db/tenant.ts` |
 | Composite foreign keys | Rows can only point to rows of the same business, even through nested writes. | schema |
@@ -83,9 +83,9 @@ Row-level security does not apply to Postgres superusers. The Compose setup conn
 
 | What | Limit | Keyed by |
 |---|---|---|
-| Sign-in | 10 per 15 min | email address |
+| Sign-in (shop and console) | 10 per 15 min | email address |
 | Sign-in | 50 per 15 min | client address (only with `TRUST_PROXY=1`) |
-| Sign-up | 10 per hour | client address (only with `TRUST_PROXY=1`) |
+| Shop account sign-up | 10 per hour | client address (only with `TRUST_PROXY=1`) |
 | Creating businesses | 10 per hour | user |
 | Loading a demo | 6 per hour | user |
 | Uploads | 30 per hour | user |
@@ -122,7 +122,7 @@ If a migration fails, the app and worker do not start and the old database is un
 
 ## 6. Monitoring
 
-* **System page** (`/bi/system`, for the owner and the accountant). For each business it shows:
+* **System page** (`/admin/erp/system`, for the owner and the accountant). For each business it shows:
   * the database round trip;
   * imports in the last 30 days and the last import per source;
   * background work in the last 7 days: done, failed, waiting, and median and slowest-10% times; the oldest waiting job; recent failures with their errors;
@@ -140,9 +140,30 @@ If a migration fails, the app and worker do not start and the old database is un
 * Backups are scripts you schedule; there is no built-in off-site copy.
 * Row-level security narrows the ML worker's sessions; web requests are scoped by the application (`forTenant()`), not yet by a per-request database setting.
 
+## 7a. The website feeds the ERP and CRM
+
+Once the owner links the website to their business (**ERP → Data & connections**), every order, stock change, product change and purchase bill queues a sync. A sync re-reads the shop's tables, converts them to the import template and runs them through the same checks as any import; with no errors it is saved without review. The import history shows each sync.
+
+| Shop record | In the books |
+|---|---|
+| Order (confirmed, packed, shipped, delivered, returned) | Sales invoice on the "Own website" channel; cancelled orders are left out, and drop out of the books if cancelled later |
+| Returned order (order page: "Take back as returned") | Sales return for the whole order, dated when it was marked; the goods go back into stock |
+| Online payment marked paid | Receipt against the invoice, on the order date |
+| Cash on delivery marked collected (order page) | Receipt on the day it was marked; until then the order is owed |
+| Razorpay fee, when the gateway reported it | Payment gateway charge on that order |
+| Customer account, or anyone who has ordered | Customer in the CRM, with phone and city from their default address |
+| "Email me offers" ticked at sign-up | Email consent recorded once; an unsubscribe in the CRM is never overwritten |
+| Product variant | Item (by SKU), linked back to the variant |
+| Purchase bill (ERP → Purchases) | Purchase invoice and the supplier; a payment when marked paid |
+| Stock on hand today | Closing stock the books are checked against |
+
+**Opening stock is worked out, not recorded.** The shop never kept an opening count, so the books take today's stock, add back what sold since the first day and take off what was bought. Stock changed by hand on Products & stock in that time makes it wrong; each sync says so. **Costs** come from purchase bills (each bill sets the product's cost); products never bought on a bill have no cost and are left out of profit.
+
+If website orders are also entered in Tally or BUSY, linking the website would count them twice. Link it only where the website is where these sales are recorded.
+
 ## 8. Hosting on Vercel with a hosted Postgres
 
-The same code runs as a website: the product site at `/`, self-serve sign-up, and each customer's businesses kept apart. The demo shop stays at `/shop`.
+The same code runs as a hosted website: the shop at `/` and the owner console at `/admin`.
 
 **Status: the Vercel build is checked by Vercel on every push, but a deployment with a database has not been tried from the development environment** (its network cannot reach `vercel.app`). Walk through the checks at the end before inviting anyone.
 
@@ -181,8 +202,8 @@ The same code runs as a website: the product site at `/`, self-serve sign-up, an
 ### Checks after the first deploy
 
 1. `GET /api/health` answers `200`.
-2. Create an account at `/signup`, load the quick demo, open each report.
-3. Delete the demo business from **Business**, and confirm it is gone from the switcher.
-4. Sign up a second account and confirm it sees none of the first account's businesses.
+2. Sign in at `/admin/login` (create the owner first with `npm run seed:admin`, run from your computer with `DATABASE_URL` set), create your business on Data & connections and link the website.
+3. Place a test order on the shop and check it appears under CRM → Customers and in the import history.
+4. Load the quick demo, open each report, then delete it from **Business**.
 
-The storefront at `/shop` needs its own catalogue (`scripts/seed-dummy-catalog.mjs`) and an admin account (`npm run seed:admin`, run from your computer with `DATABASE_URL` set); without them it shows an empty shop.
+The shop needs products: add them on Products & stock, or load the sample catalogue with `scripts/seed-dummy-catalog.mjs`.

@@ -48,7 +48,7 @@ export const bySeverityThenImpact = <T extends { severity: string; impactInr: { 
 
 export function entityHref(entityType: string, entityId: string | null): string | null {
   if (!entityId) return null;
-  if (entityType === "item" || entityType === "channel_item") return `/bi/products/${entityId}`;
-  if (entityType === "party") return `/bi/customers/${entityId}`;
+  if (entityType === "item" || entityType === "channel_item") return `/admin/erp/products/${entityId}`;
+  if (entityType === "party") return `/admin/crm/customers/${entityId}`;
   return null;
 }

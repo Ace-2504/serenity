@@ -20,7 +20,7 @@ describe("rate limiter", () => {
 
 describe("return path after sign-in", () => {
   it("keeps same-site paths and drops anything that leaves the site", () => {
-    expect(safeNextPath("/bi/campaigns?x=1")).toBe("/bi/campaigns?x=1");
+    expect(safeNextPath("/admin/crm/campaigns?x=1")).toBe("/admin/crm/campaigns?x=1");
     for (const bad of ["https://evil.example", "//evil.example", "/\\evil.example", "javascript:alert(1)", ""]) expect(safeNextPath(bad)).toBe("/");
   });
 });

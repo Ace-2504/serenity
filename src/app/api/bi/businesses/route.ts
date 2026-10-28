@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { jsonError, requireSignedIn, withActiveTenant } from "@/server/bi/api";
+import { jsonError, requireShopOwner, withActiveTenant } from "@/server/bi/api";
 import { createBusiness } from "@/server/bi/business";
 import { LIMITS, tooManyRequests } from "@/server/security/rate-limit";
 
@@ -14,7 +14,7 @@ const body = z.object({
 
 /** Creates a real (non-demo) business with the caller as owner and a template-upload data source. */
 export async function POST(request: NextRequest) {
-  const owner = await requireSignedIn(request);
+  const owner = await requireShopOwner(request);
   if (owner instanceof NextResponse) return owner;
   const parsed = body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return jsonError(400, "INVALID_INPUT", "Business name must be 2-120 characters");

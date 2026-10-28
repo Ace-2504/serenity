@@ -27,6 +27,8 @@ export async function POST(request: NextRequest) {
   const postalCode  = get("postalCode");
   const country     = get("country");
   const phone       = get("phone");
+  // Marketing email only when the customer ticks the (unticked) box.
+  const marketingEmail = get("marketingEmail") === "yes";
   const nextPath    = safeNextPath(get("next") || "/");
 
   function errorRedirect(code: string) {
@@ -79,6 +81,7 @@ export async function POST(request: NextRequest) {
       data: {
         email,
         passwordHash,
+        marketingEmailConsentAt: marketingEmail ? new Date() : null,
         profile: {
           create: { firstName, lastName }
         },

@@ -15,7 +15,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 function RegisterForm() {
   const params = useSearchParams();
   const errorCode = params.get("error");
-  const next = params.get("next") || "/shop";
+  const next = params.get("next") || "/";
   const confirmRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
@@ -214,6 +214,11 @@ function RegisterForm() {
               </label>
             </div>
           </div>
+
+          <label className="flex items-start gap-2 text-sm text-graphite">
+            <input type="checkbox" name="marketingEmail" value="yes" className="mt-1" />
+            <span>Email me offers and new arrivals. You can unsubscribe from any email.</span>
+          </label>
 
           <button
             type="submit"

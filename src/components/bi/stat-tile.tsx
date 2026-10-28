@@ -10,7 +10,7 @@ export function StatTile({ label, value, sub, status = "ok", note, metricId }: {
       <p className="flex items-center justify-between gap-2 text-xs uppercase tracking-wide text-graphite">
         <span>{label}</span>
         {metricId && (
-          <Link href={`/bi/metrics#${metricId}` as Route} className="normal-case tracking-normal underline-offset-2 hover:underline" aria-label={`How ${label} is calculated`}>
+          <Link href={`/admin/erp/metrics#${metricId}` as Route} className="normal-case tracking-normal underline-offset-2 hover:underline" aria-label={`How ${label} is calculated`}>
             how?
           </Link>
         )}

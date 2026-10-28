@@ -39,6 +39,8 @@ export const RULE_CONFIG = {
   discountRisePp: 2,
   dsoRiseDays: 7,
   payerDelayRiseDays: 15,
+  /** Below this many buyers, "the top five" is most of the base and concentration is not news. */
+  concentrationMinBuyers: 10,
   concentrationTop5: 0.5,
   concentrationSingle: 0.25,
   lapsingMaxFindings: 10,

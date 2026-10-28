@@ -15,14 +15,17 @@ Phase 5 implementation scaffold for the stationery ecommerce project.
 
 ## What is where
 
-* `/`: the Serenity BI product site, with self-serve sign-up (`/signup`) and sign-in (`/login`).
-* `/bi`: the reports, imports, campaigns and assistant for the signed-in user's businesses.
-* `/shop`: the Paper Serenity stationery storefront (the original app), kept as a working data source.
-* `/privacy`: what the software stores and sends. It is not yet a reviewed privacy policy.
+One website. Customers shop at `/`; the owner and staff run everything from the **owner console** at `/admin` (sign in at `/admin/login`):
+
+* **Shop**: dashboard, orders, products and stock, payments.
+* **ERP** (`/admin/erp`): purchases from suppliers, profitability, sales channels, stock analysis, cash and dues, predictions, and data and connections (Tally, BUSY, marketplaces).
+* **CRM** (`/admin/crm`): customer directory and segments, and owner-approved campaigns.
+
+The website is linked to the owner's business on **Data & connections**. From then on its orders, returns, payments, customers (with their opt-in to marketing email), products, stock and purchase bills are copied into that business's books after every change, checked like any import, and saved when they have no errors.
 
 ## Host it on Vercel
 
-Set `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `TRUST_PROXY=1` and `APP_URL` in the Vercel project and redeploy; migrations run during the build. What works differently when hosted (no live Tally, no two-year demo, no ML without a separate worker): [`docs/platform/09-operations.md` §8](docs/platform/09-operations.md#8-hosting-on-vercel-with-a-hosted-postgres).
+Set `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `TRUST_PROXY=1` and `APP_URL` in the Vercel project and redeploy; migrations run during the build. What works differently when hosted (no live Tally sync, no two-year demo, no predictions without a separate worker): [`docs/platform/09-operations.md` §8](docs/platform/09-operations.md#8-hosting-on-vercel-with-a-hosted-postgres).
 
 ## Run with Docker (recommended for a business)
 
@@ -31,7 +34,7 @@ cp .env.docker.example .env      # then replace every "change-me" (openssl rand 
 docker compose up -d --build     # Postgres, migrations, web app on :3000, background worker
 ```
 
-Sign in at `http://localhost:3000/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`; you land on `/bi`. Backups, HTTPS, upgrades and the optional local model server: [`docs/platform/09-operations.md`](docs/platform/09-operations.md).
+Sign in at `http://localhost:3000/admin/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`; you land on the owner console. Backups, HTTPS, upgrades and the optional local model server: [`docs/platform/09-operations.md`](docs/platform/09-operations.md).
 
 ## Run Locally (development)
 

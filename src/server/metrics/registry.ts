@@ -1,5 +1,5 @@
 /**
- * Metrics the product shows, with the definition the owner sees on /bi/metrics.
+ * Metrics the product shows, with the definition the owner sees on /admin/erp/metrics.
  * Every id must have an entry in docs/platform/04-kpi-dictionary.md (enforced by a test).
  */
 export type MetricDef = { id: string; label: string; unit: "INR" | "%" | "ratio" | "days" | "count" | "units"; formula: string; notes?: string };

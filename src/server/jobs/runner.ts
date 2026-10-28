@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Job, Prisma } from "@prisma/client";
 import { loadDemoData, type DemoSize } from "@/server/bi/demo";
 import { forTenant } from "@/server/db/tenant";
+import { syncWebsite } from "@/server/adapters/website/sync";
 import { measureOutcomes, refreshFindings } from "@/server/findings/engine";
 import { commitImport, ImportError } from "@/server/ingest/pipeline";
 import { sendCampaign } from "@/server/campaigns/service";
@@ -82,6 +83,11 @@ const HANDLERS: Record<JobType, Handler> = {
   "tally.sync": async (job, progress) => {
     const { dataSourceId, userId } = job.payload as { dataSourceId: string; userId?: string };
     const result = await syncTally(forTenant(job.tenantId), job.tenantId, dataSourceId, { userId, onStep: progress });
+    return { ...result, ...(result.committed ? await afterDataChange(job.tenantId, progress) : {}) } as Prisma.InputJsonValue;
+  },
+  "website.sync": async (job, progress) => {
+    const { dataSourceId, userId } = job.payload as { dataSourceId: string; userId?: string };
+    const result = await syncWebsite(forTenant(job.tenantId), job.tenantId, dataSourceId, { userId, onStep: progress });
     return { ...result, ...(result.committed ? await afterDataChange(job.tenantId, progress) : {}) } as Prisma.InputJsonValue;
   },
   "amazon.sync": async (job, progress) => {

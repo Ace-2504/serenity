@@ -5,9 +5,11 @@ import { useState } from "react";
 import { postAndWait } from "@/components/bi/jobs";
 
 export function Onboarding({
+  canCreate,
   stacked = false,
   fullDemo = true,
 }: {
+  canCreate: boolean;
   stacked?: boolean;
   fullDemo?: boolean;
 }) {
@@ -29,6 +31,15 @@ export function Onboarding({
     setBusy(null);
     setMessage(error);
     router.refresh();
+  }
+
+  if (!canCreate) {
+    return (
+      <p className="text-sm text-graphite">
+        You are not a member of any business yet. Ask the shop&apos;s owner to
+        add you.
+      </p>
+    );
   }
 
   return (

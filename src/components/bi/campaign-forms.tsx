@@ -31,7 +31,7 @@ export function NewCampaignForm({ audiences, segments }: { audiences: Record<str
         const b = await r.json().catch(() => ({}));
         setBusy(false);
         if (!r.ok) return setError(b.message ?? "Could not create the campaign");
-        router.push(`/bi/campaigns/${b.id}` as Route);
+        router.push(`/admin/crm/campaigns/${b.id}` as Route);
       }}
     >
       <label className="text-xs text-graphite">

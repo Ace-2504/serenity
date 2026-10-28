@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Space_Grotesk } from "next/font/google";
 import GlobalBackHomeNav from "@/components/global-back-home-nav";
-import ProductNav from "@/components/product-nav";
 import { getServerSession } from "@/lib/auth";
 import "./globals.css";
 
@@ -19,9 +18,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Serenity BI: profit, stock and cash for businesses on Tally and BUSY",
-  description:
-    "Serenity BI reads your Tally or BUSY books and marketplace payouts, then shows which products make money after fees, where cash is stuck, which stock will not sell and which customers have gone quiet."
+  title: "Paper Serenity Stationery Hub",
+  description: "A calm, premium stationery destination for students, creators, and professionals with fast checkout and GST-ready invoices."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -33,7 +31,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="paper-grid" />
         <div className="grain" />
         <div className="relative z-10">
-          <ProductNav signedIn={!!session} />
           <GlobalBackHomeNav session={session} />
           {children}
         </div>

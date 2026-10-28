@@ -21,7 +21,7 @@ export function DeleteBusiness({ tenantId, name }: { tenantId: string; name: str
         const d = await r.json().catch(() => ({}));
         setBusy(false);
         if (!r.ok) return setError(d.message ?? "Could not delete the business");
-        router.push("/bi");
+        router.push("/admin/erp");
         router.refresh();
       }}
     >

@@ -45,7 +45,8 @@ export type ImportSummary = {
   adapter?: AdapterSummary;
 };
 
-export type AdapterSummary = { name: string; verified: false; note: string; details: unknown };
+/** verified: true only for sources read exactly from this app's own records (the website). */
+export type AdapterSummary = { name: string; verified: boolean; note: string; details: unknown };
 
 export type StockCheck = { items: number; qtyMismatches: number; valueMismatches: number; valueUnknownInLedger: number; examples: string[] };
 
@@ -156,6 +157,9 @@ export async function commitImport(db: TenantDb, tenantId: string, batchId: stri
       if (log.errorCount > 0) {
         throw new ImportError("VALIDATION_FAILED", "The import no longer validates against current data; stage it again", log.issues.slice(0, 20));
       }
+      // What the adapter said at staging (e.g. "not verified against a real Tally") stays with the import.
+      const stagedAdapter = (batch.counts as unknown as Partial<ImportSummary> | null)?.adapter;
+      if (stagedAdapter) summary.adapter = stagedAdapter;
 
       await writeBundle(tx, tenantId, batch.dataSourceId, batch.id, bundle, plan, options.onStep ?? (() => undefined));
 

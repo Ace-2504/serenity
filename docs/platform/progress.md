@@ -839,3 +839,56 @@ playwright          20 passed (fresh database; new e2e/visitor.spec.ts: product 
 * Deleting an account is not built.
 * There is no email verification or password reset.
 * Rate limits are per instance, which is weak on serverless hosting.
+
+## One website: the shop with its ERP and CRM in the owner console
+
+**What changed and why.** The owner asked for one website, not a separate product site: the shop, with its ERP and CRM as the admin, linked to the shop's own data. This replaces the previous entry's product site and self-serve sign-up.
+
+* **One site.** The Paper Serenity shop is back at `/`. The product landing page and `/signup` are gone. Old links redirect: `/bi` goes to `/admin/erp`, `/shop` to `/`, `/signup` to `/admin/login` and `/privacy` to `/admin/erp/data`.
+* **Owner console at `/admin`.** One sign-in (`/admin/login`) and one sidebar.
+  * **Shop:** dashboard, products and stock, payments.
+  * **ERP:** overview, purchases, profitability, sales channels, stock analysis, cash and dues, predictions, data and connections.
+  * **CRM:** customers and campaigns.
+  * **Help and settings:** ask, definitions, business, system.
+
+  The reports moved from `/bi/*` to `/admin/erp/*` and `/admin/crm/*`. Shop staff see the Shop section. The owner and business members also see the ERP and CRM.
+* **Admin sign-in is now rate-limited.** It had no limit before. Business members (for example an accountant) can now sign in too.
+* **Only the shop's owner can create businesses and load demos.** The previous entry had opened this to anyone.
+* **The website feeds the books** (`src/server/adapters/website`; mapping in 09-operations §7a). After the owner links the website to their business:
+  * every order, stock or product change and purchase bill queues a `website.sync` job;
+  * the sync converts the shop's tables to the import template and runs the normal checks;
+  * with no errors, it is saved without review.
+* **Customer consent.** Shop sign-up has an unticked "Email me offers" box. Customers who tick it are recorded as agreeing, once. An unsubscribe in the CRM is never overwritten.
+* **Purchases (ERP).** Suppliers and their bills (migration `shop_erp_link`).
+  * A bill adds to stock and sets each product's cost.
+  * It enters the books as a purchase and an amount owed, or as paid.
+  * A bill can be removed only if its stock has not been sold since.
+* **Order fulfilment.** The order page moves an order through packed, shipped and delivered, or cancels or takes it back. Cancelling or returning puts the goods back in stock; the shop never did before. Cash on delivery can be marked collected once shipped, and the books then show it received on that day.
+* **Fix: adapter notes were lost on save.** When an import was saved, its summary was rebuilt and the adapter's note was dropped. For Tally, Amazon and registers that note says the data is not verified against the real system, so the warning disappeared once data was saved. It is now kept.
+* **CRM customer directory.** Search by name, email or phone. It includes shop accounts that have not bought yet, and shows each customer's email consent.
+* **Dashboard.** Shows the books' open decisions, CRM customers, customers reachable by email and the amount owed to suppliers.
+* **Fix: the customer concentration finding.** It now needs at least 10 buyers. With one customer it used to say "100% of sales come from just five buyers".
+
+**Checked in the browser** (production build, development database):
+* Linked the website to a business; the first sync was saved.
+* Recorded a ₹1,210.68 bill: stock went up, the next sync added the supplier and the purchase, and the dashboard showed ₹1,211 owed.
+* No horizontal scroll at 390 px on the dashboard, Purchases or ERP overview.
+
+**Tests (actual results)**
+```
+npm test            23 files, 181 tests passed (new: website conversion 3, concentration minimum 1)
+npm run test:int    18 files, 132 tests passed (new: website feed 3). The schema check caught two missing
+                    indexes on purchase lines; they were added and it passed on the rerun.
+pytest (ml/)        not rerun: no Python changes
+playwright          21 passed (fresh database; new e2e/shop-erp.spec.ts: one console; link the website and
+                    record a bill; a customer's order and consent reach the CRM and books; ship, collect cash,
+                    receipt in the books)
+```
+
+**Known limits**
+* Opening stock is worked out from today's count. Stock changed by hand before purchase bills existed makes it wrong; each sync says so.
+* Products never bought on a bill have no cost, so they are left out of profit.
+* Returns are whole-order only, because the shop has no partial returns.
+* Purchase returns are not built. A wrong bill can be removed only before its stock sells.
+* Refunds for returned prepaid orders are not recorded, so the customer shows a credit in the books until they are.
+* If website orders are also entered in Tally or BUSY, linking the website counts them twice.

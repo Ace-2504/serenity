@@ -125,7 +125,7 @@ export function RegisterUpload({ fields, voucherTypes }: { fields: Field[]; vouc
             const d = await r.json().catch(() => ({}));
             setBusy(false);
             if (!r.ok) return setError(d.message ?? "Could not check the registers");
-            router.push(`/bi/imports/${d.batchId}` as Route);
+            router.push(`/admin/erp/imports/${d.batchId}` as Route);
           }}
         >
           {busy ? "Checking…" : "Check the registers"}

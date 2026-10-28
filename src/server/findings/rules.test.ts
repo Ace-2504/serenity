@@ -6,10 +6,10 @@ import { severityFor } from "@/server/findings/types";
 
 const concentrationRule = RULES.find((r) => r.id === "CUSTOMER_CONCENTRATION")!;
 
-function ctxWith(top5Share: number, topShare: number): RuleContext {
+function ctxWith(top5Share: number, topShare: number, buyers = 40): RuleContext {
   return {
     parties: new Map([["p1", { id: "p1", name: "Big Buyer", segmentTag: null }]]),
-    concentration: { buyers: 40, top5Share, top10Share: top5Share, hhi: 900, top: [{ partyId: "p1", net: 1, share: topShare }] }
+    concentration: { buyers, top5Share, top10Share: top5Share, hhi: 900, top: [{ partyId: "p1", net: 1, share: topShare }] }
   } as unknown as RuleContext;
 }
 
@@ -26,6 +26,10 @@ describe("customer concentration rule", () => {
 
   it("stays quiet for a spread-out buyer base", () => {
     expect(concentrationRule.run(ctxWith(0.3, 0.1))).toEqual([]);
+  });
+
+  it("stays quiet while there are too few buyers for 'the top five' to mean anything", () => {
+    expect(concentrationRule.run(ctxWith(1, 1, 3))).toEqual([]);
   });
 });
 

@@ -3,6 +3,7 @@ import { requireRequestRole } from "@/lib/auth";
 import { createInventoryItem, InventoryValidationError, normalizeStatus } from "@/lib/admin-inventory";
 import { isCloudinaryUrl } from "@/lib/cloudinary";
 import { prisma } from "@/lib/prisma";
+import { queueWebsiteSync } from "@/server/adapters/website/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    await queueWebsiteSync("product added");
     return NextResponse.json(
       {
         message: "Inventory item created successfully.",

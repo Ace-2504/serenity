@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { jsonError, requireSignedIn, withActiveTenant } from "@/server/bi/api";
+import { jsonError, requireShopOwner, withActiveTenant } from "@/server/bi/api";
 import { createDemoTenant, DEMO_PACKS, fullDemoAllowed } from "@/server/bi/demo";
 import { enqueueJob } from "@/server/jobs/queue";
 import { kickJobs } from "@/server/jobs/runner";
@@ -14,7 +14,7 @@ const body = z.object({ size: z.enum(["quick", "full"]).default("quick"), pack: 
 
 /** Creates the demo business now and loads its data as a background job (202 + jobId). */
 export async function POST(request: NextRequest) {
-  const owner = await requireSignedIn(request);
+  const owner = await requireShopOwner(request);
   if (owner instanceof NextResponse) return owner;
   const parsed = body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return jsonError(400, "INVALID_INPUT", "size must be quick or full, pack stationery or pharmacy");

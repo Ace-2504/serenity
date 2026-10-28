@@ -4,6 +4,7 @@ export default function AdminLoginPage({
   searchParams?: { error?: string };
 }) {
   const hasError = searchParams?.error === "invalid";
+  const rateLimited = searchParams?.error === "rate_limited";
 
   return (
     <main className="flex min-h-screen w-full items-center px-4 py-10 md:px-8 xl:px-12">
@@ -12,11 +13,16 @@ export default function AdminLoginPage({
         <p className="text-xs font-semibold uppercase tracking-widest text-graphite">Owner Console</p>
         <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-forest">Paper Serenity Stationery Hub</p>
         <h1 className="mt-2 font-display text-3xl">Admin Login</h1>
-        <p className="mt-2 text-sm text-graphite">Sign in with an admin role account to access operations tools.</p>
+        <p className="mt-2 text-sm text-graphite">Sign in to run the shop and its ERP and CRM: orders, stock, purchases, books, customers and campaigns.</p>
 
         {hasError ? (
           <p className="mt-4 rounded-lg border border-terracotta bg-[#fce7e2] px-3 py-2 text-sm text-terracotta">
             Invalid admin credentials. Please try again.
+          </p>
+        ) : null}
+        {rateLimited ? (
+          <p className="mt-4 rounded-lg border border-terracotta bg-[#fce7e2] px-3 py-2 text-sm text-terracotta">
+            Too many sign-in attempts. Wait 15 minutes and try again.
           </p>
         ) : null}
 

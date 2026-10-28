@@ -31,7 +31,7 @@ export function UploadForm() {
     if (body.status === "duplicate") {
       setMessage("These exact files are already the latest import — nothing to do.");
     }
-    router.push(`/bi/imports/${body.batchId}`);
+    router.push(`/admin/erp/imports/${body.batchId}`);
     router.refresh();
   }
 
