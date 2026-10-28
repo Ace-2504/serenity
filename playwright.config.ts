@@ -15,7 +15,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]] : "list",
+  // On CI, the github reporter turns failures into annotations on the commit and pull request.
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never", outputFolder: "playwright-report" }]] : "list",
   use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1400, height: 1000 } } }],
   webServer: process.env.E2E_BASE_URL ? undefined : { command: "npx next start -p 3200", url: `${baseURL}/api/health`, timeout: 120_000, reuseExistingServer: true }
