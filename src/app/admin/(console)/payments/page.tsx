@@ -196,7 +196,7 @@ export default function AdminPaymentsPage() {
                     <td className="py-3">
                       {payment.mismatch ? <span className="rounded-full bg-[#fce7e2] px-2 py-1 text-xs font-semibold text-terracotta">Yes</span> : "No"}
                     </td>
-                    <td className="py-3">{new Date(payment.updatedAt).toLocaleString()}</td>
+                    <td className="py-3">{new Date(payment.updatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                     <td className="py-3">
                       {payment.status !== "captured" && payment.order.paymentMethod !== "cod" ? (
                         <button

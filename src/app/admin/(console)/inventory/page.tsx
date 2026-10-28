@@ -950,7 +950,7 @@ export default function AdminInventoryPage() {
                         className="w-20 rounded-lg border border-mist bg-canvas px-2 py-1"
                       />
                     </td>
-                    <td className="py-3">{new Date(item.updatedAt).toLocaleString()}</td>
+                    <td className="py-3">{new Date(item.updatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                     <td className="py-3">
                       <div className="flex items-center gap-2">
                         <button

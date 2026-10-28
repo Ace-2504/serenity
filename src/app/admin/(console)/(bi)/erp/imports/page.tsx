@@ -33,6 +33,22 @@ export default async function ImportsPage() {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
       <div className="space-y-6">
+        {!bi.tenant.isDemo && (
+          <section className="rounded-xl2 border border-forest/50 bg-canvas p-5">
+            <h2 className="font-display text-2xl">This website</h2>
+            <div className="mt-2">
+              <WebsiteLink
+                state={
+                  website
+                    ? { kind: "linked", lastSync: website.lastSuccessfulSyncAt ? formatDateTime(website.lastSuccessfulSyncAt) : null, latestImport: websiteImport ? { id: websiteImport.id, status: websiteImport.status } : null }
+                    : websiteElsewhere
+                      ? { kind: "elsewhere" }
+                      : { kind: "unlinked", canLink: bi.role === "owner_admin" }
+                }
+              />
+            </div>
+          </section>
+        )}
         {bi.tenant.isDemo ? (
           <section className="space-y-4 rounded-xl2 border border-mist bg-canvas p-5">
             <h2 className="font-display text-2xl">Upload accounting data</h2>
@@ -49,22 +65,6 @@ export default async function ImportsPage() {
           </section>
         ) : (
           <p className="text-sm text-graphite">Your role ({bi.role}) can view imports but not upload.</p>
-        )}
-        {!bi.tenant.isDemo && (
-          <section className="rounded-xl2 border border-forest/50 bg-canvas p-5">
-            <h2 className="font-display text-2xl">This website</h2>
-            <div className="mt-2">
-              <WebsiteLink
-                state={
-                  website
-                    ? { kind: "linked", lastSync: website.lastSuccessfulSyncAt ? formatDateTime(website.lastSuccessfulSyncAt) : null, latestImport: websiteImport ? { id: websiteImport.id, status: websiteImport.status } : null }
-                    : websiteElsewhere
-                      ? { kind: "elsewhere" }
-                      : { kind: "unlinked", canLink: bi.role === "owner_admin" }
-                }
-              />
-            </div>
-          </section>
         )}
         {!bi.tenant.isDemo && CAN_IMPORT.includes(bi.role) && (
           <section className="rounded-xl2 border border-mist bg-canvas p-5">

@@ -50,7 +50,7 @@ export default async function AdminOrderDetailPage({ params }: { params: { order
       <header className="mb-6 rounded-2xl border border-mist bg-gradient-to-br from-canvas via-[#eff7f8] to-paper p-5 shadow-panel">
         <p className="text-xs font-semibold uppercase tracking-widest text-graphite">Shop · Order</p>
         <h1 className="mt-2 font-display text-4xl">Order {order.orderNumber}</h1>
-        <p className="mt-2 text-sm text-graphite">Placed: {new Date(order.placedAt).toLocaleString("en-IN")}</p>
+        <p className="mt-2 text-sm text-graphite">Placed: {new Date(order.placedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
       </header>
 
       <section className="mb-6 grid gap-4 md:grid-cols-2">
