@@ -12,3 +12,19 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+tsconfig.tsbuildinfo
+
+# Generated demo datasets (reproducible with npm run demo:generate)
+demo-data/
+
+# Python ML worker
+ml/.venv/
+__pycache__/
+.pytest_cache/
+
+# Docker Compose
+backups/
+
+# Playwright
+playwright-report/
+test-results/

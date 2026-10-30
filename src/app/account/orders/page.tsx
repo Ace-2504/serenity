@@ -73,7 +73,7 @@ export default function AccountOrdersPage() {
                   </td>
                   <td className="py-3">{order.paymentStatus}</td>
                   <td className="py-3">₹{order.grandTotalInr}</td>
-                  <td className="py-3">{new Date(order.placedAt).toLocaleString()}</td>
+                  <td className="py-3">{new Date(order.placedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                   <td className="py-3">
                     <Link href={`/account/orders/${order.id}`} className="font-semibold text-forest hover:underline">
                       View

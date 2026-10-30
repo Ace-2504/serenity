@@ -7,6 +7,22 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: serenity_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/serenity_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,3 +34,56 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: ML worker (Python) environment and tests
+        run: |
+          python -m venv ml/.venv
+          ml/.venv/bin/pip install -q -r ml/requirements.txt
+          cd ml && .venv/bin/python -m pytest -q
+      - run: npm run test:int
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: serenity_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/serenity_e2e
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/serenity_e2e
+      AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      ADMIN_EMAIL: owner@example.com
+      ADMIN_PASSWORD: ci-only-password
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npx prisma migrate deploy
+      - run: node scripts/seed-admin.mjs
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

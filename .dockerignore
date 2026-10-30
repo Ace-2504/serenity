@@ -1,0 +1,14 @@
+.git
+.next
+node_modules
+ml/.venv
+**/__pycache__
+.pytest_cache
+.env
+.env.*
+!.env.example
+demo-data
+coverage
+tsconfig.tsbuildinfo
+docs/platform/screenshots
+product images

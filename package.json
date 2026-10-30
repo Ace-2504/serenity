@@ -5,22 +5,33 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "vercel-build": "bash scripts/vercel-build.sh",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed:admin": "node scripts/seed-admin.mjs",
-    "test": "vitest run"
+    "demo:generate": "tsx --tsconfig tsconfig.json scripts/generate-demo.ts",
+    "worker": "tsx --tsconfig tsconfig.json scripts/worker.ts",
+    "findings:refresh": "tsx --tsconfig tsconfig.json scripts/refresh-findings.ts",
+    "test": "vitest run",
+    "test:int": "vitest run -c vitest.integration.config.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",
+    "@vercel/functions": "3.9.9",
     "cloudinary": "^2.9.0",
+    "csv-parse": "^7.0.3",
+    "fast-xml-parser": "4.5.7",
     "next": "14.2.5",
+    "nodemailer": "10.0.16",
     "razorpay": "^2.9.6",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
@@ -30,6 +41,7 @@
     "postcss": "^8.4.39",
     "prisma": "^5.17.0",
     "tailwindcss": "^3.4.4",
+    "tsx": "^4.23.15",
     "typescript": "^5.5.3",
     "vitest": "^4.1.9"
   }

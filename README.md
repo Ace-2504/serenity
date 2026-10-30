@@ -1,5 +1,7 @@
 # Stationery Webapp MVP
 
+> **In progress:** this storefront is being extended into an operations-intelligence platform for Indian trading SMEs (profitability, inventory, working capital, customer analytics). Plan and milestone log: [`docs/platform/`](docs/platform/README.md).
+
 Phase 5 implementation scaffold for the stationery ecommerce project.
 
 ## Included In This Starter
@@ -11,7 +13,30 @@ Phase 5 implementation scaffold for the stationery ecommerce project.
 5. API starter routes for health, catalog categories, and admin order queue.
 6. Prisma schema starter aligned with phase 4 data model.
 
-## Run Locally
+## What is where
+
+One website. Customers shop at `/`; the owner and staff run everything from the **owner console** at `/admin` (sign in at `/admin/login`):
+
+* **Shop**: dashboard, orders, products and stock, payments.
+* **ERP** (`/admin/erp`): purchases from suppliers, profitability, sales channels, stock analysis, cash and dues, predictions, and data and connections (Tally, BUSY, marketplaces).
+* **CRM** (`/admin/crm`): customer directory and segments, and owner-approved campaigns.
+
+The website is linked to the owner's business on **Data & connections**. From then on its orders, returns, payments, customers (with their opt-in to marketing email), products, stock and purchase bills are copied into that business's books after every change, checked like any import, and saved when they have no errors.
+
+## Host it on Vercel
+
+Add a Neon database from the Vercel project's Storage tab, set `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `TRUST_PROXY=1` and `APP_URL`, and redeploy: the build migrates the database and creates the owner account. What works differently when hosted (no live Tally sync, no two-year demo, no predictions without a separate worker): [`docs/platform/09-operations.md` §8](docs/platform/09-operations.md#8-hosting-on-vercel-with-a-hosted-postgres).
+
+## Run with Docker (recommended for a business)
+
+```bash
+cp .env.docker.example .env      # then replace every "change-me" (openssl rand -hex 32)
+docker compose up -d --build     # Postgres, migrations, web app on :3000, background worker
+```
+
+Sign in at `http://localhost:3000/admin/login` with `ADMIN_EMAIL` / `ADMIN_PASSWORD`; you land on the owner console. Backups, HTTPS, upgrades and the optional local model server: [`docs/platform/09-operations.md`](docs/platform/09-operations.md).
+
+## Run Locally (development)
 
 1. Install dependencies:
 
@@ -53,6 +78,13 @@ npm run dev
 
 1. URL: `/admin/login`
 2. Default credentials come from `.env` values for `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+
+## Tests
+
+1. Unit tests: `npm test`.
+2. Integration tests need a separate PostgreSQL database: set `TEST_DATABASE_URL` (see `.env.example`), then `npm run test:int`. Migrations are applied automatically; tests create and delete their own tenants.
+3. ML worker tests: `python -m venv ml/.venv && ml/.venv/bin/pip install -r ml/requirements.txt && (cd ml && .venv/bin/python -m pytest)`.
+4. Browser tests: `npm run build`, then `npx playwright test` (starts the app on port 3200), or `E2E_BASE_URL=http://localhost:3000 npx playwright test` against a running app. Needs the owner account from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
 ## Payment Integration (Razorpay)
 

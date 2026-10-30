@@ -215,6 +215,11 @@ function RegisterForm() {
             </div>
           </div>
 
+          <label className="flex items-start gap-2 text-sm text-graphite">
+            <input type="checkbox" name="marketingEmail" value="yes" className="mt-1" />
+            <span>Email me offers and new arrivals. You can unsubscribe from any email.</span>
+          </label>
+
           <button
             type="submit"
             className="w-full rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-canvas"

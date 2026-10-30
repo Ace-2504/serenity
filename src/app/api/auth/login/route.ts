@@ -2,13 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, setSessionCookie } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
+import { clientIp, LIMITS, safeNextPath, takeForIp, tooManyRequests } from "@/server/security/rate-limit";
 
 export async function POST(request: NextRequest) {
   const isForm = (request.headers.get("content-type") || "").includes("application/x-www-form-urlencoded");
   const body = isForm ? await request.formData() : await request.json();
   const email = String(body.get?.("email") ?? body.email ?? "").trim().toLowerCase();
   const password = String(body.get?.("password") ?? body.password ?? "");
-  const nextPath = String(body.get?.("next") ?? body.next ?? "/");
+  const nextPath = safeNextPath(String(body.get?.("next") ?? body.next ?? "/"));
+
+  const limited = [LIMITS.loginPerEmail.take(email), takeForIp(LIMITS.loginPerIp, clientIp(request))].find((r) => !r.ok);
+  if (limited && !limited.ok) {
+    if (isForm) return NextResponse.redirect(new URL(`/login?error=rate_limited&next=${encodeURIComponent(nextPath)}`, request.url));
+    return tooManyRequests(limited.retryAfterSec, "Too many sign-in attempts; wait a few minutes");
+  }
 
   const user = await prisma.user.findUnique({
     where: { email },

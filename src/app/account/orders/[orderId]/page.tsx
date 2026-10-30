@@ -72,7 +72,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
               <span className="font-semibold">Payment:</span> {order.paymentStatus}
             </p>
             <p className="mt-1">
-              <span className="font-semibold">Placed:</span> {new Date(order.placedAt).toLocaleString()}
+              <span className="font-semibold">Placed:</span> {new Date(order.placedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
             </p>
           </div>
 

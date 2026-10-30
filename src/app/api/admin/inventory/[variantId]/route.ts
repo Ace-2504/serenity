@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ProductStatus } from "@prisma/client";
 import { requireRequestRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { queueWebsiteSync } from "@/server/adapters/website/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +143,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { varian
 
     return { variant, inventory };
   });
+  await queueWebsiteSync("stock or product changed");
 
   return NextResponse.json({
     message: "Inventory updated.",
