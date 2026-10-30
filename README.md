@@ -25,7 +25,7 @@ The website is linked to the owner's business on **Data & connections**. From th
 
 ## Host it on Vercel
 
-Set `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `TRUST_PROXY=1` and `APP_URL` in the Vercel project and redeploy; migrations run during the build. What works differently when hosted (no live Tally sync, no two-year demo, no predictions without a separate worker): [`docs/platform/09-operations.md` §8](docs/platform/09-operations.md#8-hosting-on-vercel-with-a-hosted-postgres).
+Add a Neon database from the Vercel project's Storage tab, set `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `TRUST_PROXY=1` and `APP_URL`, and redeploy: the build migrates the database and creates the owner account. What works differently when hosted (no live Tally sync, no two-year demo, no predictions without a separate worker): [`docs/platform/09-operations.md` §8](docs/platform/09-operations.md#8-hosting-on-vercel-with-a-hosted-postgres).
 
 ## Run with Docker (recommended for a business)
 

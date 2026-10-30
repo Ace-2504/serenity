@@ -204,7 +204,9 @@ async function main() {
 
   const sampleOrderNumber = "ORD-10021";
   const existingOrder = await prisma.order.findUnique({ where: { orderNumber: sampleOrderNumber } });
-  if (!existingOrder && createdVariants[0]) {
+  // A sample order shows the admin screens on a development database. Hosted builds set
+  // SEED_SAMPLE_ORDER=0 so the live shop and its books start without a made-up sale.
+  if (!existingOrder && createdVariants[0] && process.env.SEED_SAMPLE_ORDER !== "0") {
     const subtotal = createdVariants[0].priceInr;
     const tax = Math.round((subtotal * 18) / 100);
 

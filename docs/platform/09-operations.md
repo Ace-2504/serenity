@@ -169,24 +169,23 @@ The same code runs as a hosted website: the shop at `/` and the owner console at
 
 ### Steps
 
-1. **Create a Postgres 16 database** with any hosted provider (Neon, Supabase, AWS RDS, …). Choose a Mumbai region (`ap-south-1`) if your customers are in India. You need two connection strings:
-   * `DATABASE_URL`: the pooled one, for the app. With PgBouncer-style pooling add `?pgbouncer=true&connection_limit=1`.
-   * `DIRECT_URL`: the direct (unpooled) one, for migrations.
+1. **Add a database.** The quickest way: in the Vercel project, **Storage → Create Database → Neon (Postgres)**, connect it to the project for Production and Preview, and pick a Mumbai region if your customers are in India. Vercel then sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED` itself. With any other provider (Supabase, AWS RDS, …), set `DATABASE_URL` (pooled; with PgBouncer add `?pgbouncer=true&connection_limit=1`) and `DIRECT_URL` (direct) yourself.
    * Connect as a role that is **not** a superuser and has no `BYPASSRLS`, so row-level security applies (§3). The provider's default owner role usually qualifies; the policies are forced on the table owner.
 2. **In the Vercel project → Settings → Environment Variables** (Production and Preview), set:
 
    | Variable | Value |
    |---|---|
-   | `DATABASE_URL`, `DIRECT_URL` | from step 1 |
    | `AUTH_SECRET` | `openssl rand -hex 32`; the app refuses to start in production without it |
+   | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the owner's sign-in for `/admin/login`; use a strong password |
    | `TRUST_PROXY` | `1` (Vercel sets the client address header) |
    | `APP_URL` | the site's address, e.g. `https://serenity.example.in`; used in unsubscribe links |
    | `SMTP_URL`, `SMTP_FROM` | optional: only if approved campaign emails should really be sent |
    | `AMAZON_SP_*` | optional: see §2a |
 
    Do not set `LLM_BASE_URL` to an outside AI service unless your customers have agreed to it; without a model server the assistant answers from report templates.
-3. **Redeploy.** The `vercel-build` script runs `prisma generate`, applies migrations with `DIRECT_URL`, then builds. Without `DATABASE_URL` it skips migrations so preview builds still succeed.
+3. **Redeploy.** The `vercel-build` script applies the migrations, creates the owner account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` with three starter products (no sample order), then builds. Every deploy re-runs it safely; changing `ADMIN_PASSWORD` and redeploying resets the owner's password. Without a database it skips these steps, so preview builds still succeed.
 4. **Set the function region** (Project → Settings → Functions) to the database's region, e.g. Mumbai (`bom1`); every page makes several database round trips.
+5. **Open the site.** The shop is at `/`. Sign in at `/admin/login`, create your business on **ERP → Data & connections** and press **Link this website to this business**. Previews of a branch are behind Vercel's own sign-in by default; the production domain is public.
 
 ### What is different when hosted
 
@@ -202,8 +201,8 @@ The same code runs as a hosted website: the shop at `/` and the owner console at
 ### Checks after the first deploy
 
 1. `GET /api/health` answers `200`.
-2. Sign in at `/admin/login` (create the owner first with `npm run seed:admin`, run from your computer with `DATABASE_URL` set), create your business on Data & connections and link the website.
+2. Sign in at `/admin/login` with `ADMIN_EMAIL`, create your business on Data & connections and link the website.
 3. Place a test order on the shop and check it appears under CRM → Customers and in the import history.
 4. Load the quick demo, open each report, then delete it from **Business**.
 
-The shop needs products: add them on Products & stock, or load the sample catalogue with `scripts/seed-dummy-catalog.mjs`.
+The shop starts with three products; add yours on Products & stock.
